@@ -12,6 +12,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.divinedeck.launcher.core.designsystem.components.AutomotiveBottomDock
 import com.divinedeck.launcher.core.designsystem.components.CockpitWidgetColumn
 import com.divinedeck.launcher.core.designsystem.components.SpeedGaugeCard
 import com.divinedeck.launcher.core.designsystem.components.VehicleShowcaseCard
@@ -36,6 +37,9 @@ import com.divinedeck.launcher.feature.widgets.domain.AndroidWidgetHostManager
  * - PANORAMICA: el vehículo como pancarta ancha arriba ocupando todo el
  *   ancho; abajo, tres tarjetas en fila: velocímetro analógico, widget
  *   superior y widget inferior (mockup Panorámico aprobado por Daniel).
+ *   El dock de navegación va lateral, a la derecha del modelo 3D (en vez
+ *   del dock inferior), para que la pancarta tenga más alto, el modelo 3D
+ *   no se corte y las tres tarjetas bajen.
  * Ambas distribuciones usan los mismos componentes y funciones; solo cambia
  * la distribución y el orden.
  */
@@ -50,7 +54,8 @@ fun CockpitScreen(
     onOpenMusicPlayer: (() -> Unit)? = null,
     onGpsStatusClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
-    layout: CockpitLayout = CockpitLayout.ORIGINAL
+    layout: CockpitLayout = CockpitLayout.ORIGINAL,
+    currentRoute: DivineDeckRoute = DivineDeckRoute.COCKPIT
 ) {
     val speedReading by gpsRepository.speedReading.collectAsState()
     val gpsStatus by gpsRepository.gpsStatus.collectAsState()
@@ -62,56 +67,73 @@ fun CockpitScreen(
         }
 
     if (layout == CockpitLayout.PANORAMICA) {
-        // DISTRIBUCIÓN PANORÁMICA: pancarta ancha arriba + fila de 3 tarjetas abajo
-        Column(
+        // DISTRIBUCIÓN PANORÁMICA: pancarta ancha arriba + fila de 3 tarjetas
+        // abajo + dock lateral a la derecha del modelo 3D. Sin dock inferior,
+        // la pancarta gana alto (el 3D ya no se corta) y las tarjetas bajan.
+        Row(
             modifier = modifier
                 .fillMaxSize()
                 .padding(horizontal = 22.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // ZONA 1: VEHÍCULO 3D COMO PANCARTA ANCHA (sin velocímetro dentro:
-            // la velocidad vive en su propia tarjeta analógica de la fila inferior)
-            VehicleShowcaseCard(
-                currentSpeedKmh = speedReading.currentSpeedKmh,
-                isSpeedReliable = speedReading.isReliable,
-                isGpsAvailable = speedReading.isReliable,
-                gpsStatus = gpsStatus,
-                onGpsStatusClick = onGpsStatusClick,
-                onOpenGarage3D = { onNavigate(DivineDeckRoute.GARAGE_3D) },
-                chevyRenderer = chevyRenderer,
-                showSpeedIndicator = false,
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1.25f)
-            )
-
-            // ZONA 2: FILA INFERIOR — VELOCÍMETRO + WIDGET SUPERIOR + WIDGET INFERIOR
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(18.dp)
+                    .weight(1f)
+                    .fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                SpeedGaugeCard(
-                    speedKmh = displaySpeedKmh,
+                // ZONA 1: VEHÍCULO 3D COMO PANCARTA ANCHA (sin velocímetro dentro:
+                // la velocidad vive en su propia tarjeta analógica de la fila inferior)
+                VehicleShowcaseCard(
+                    currentSpeedKmh = speedReading.currentSpeedKmh,
+                    isSpeedReliable = speedReading.isReliable,
+                    isGpsAvailable = speedReading.isReliable,
                     gpsStatus = gpsStatus,
-                    onStatusClick = onGpsStatusClick,
+                    onGpsStatusClick = onGpsStatusClick,
+                    onOpenGarage3D = { onNavigate(DivineDeckRoute.GARAGE_3D) },
+                    chevyRenderer = chevyRenderer,
+                    showSpeedIndicator = false,
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
+                        .fillMaxWidth()
+                        .weight(1.4f)
                 )
 
-                CockpitWidgetColumn(
-                    widgetManager = widgetManager,
-                    mediaRepository = mediaRepository,
-                    onOpenMusicPlayer = onOpenMusicPlayer ?: { onNavigate(DivineDeckRoute.MUSIC) },
-                    onNavigateToWidgets = { onNavigate(DivineDeckRoute.WIDGETS) },
-                    horizontal = true,
+                // ZONA 2: FILA INFERIOR — VELOCÍMETRO + WIDGET SUPERIOR + WIDGET INFERIOR
+                Row(
                     modifier = Modifier
-                        .weight(2f)
-                        .fillMaxHeight()
-                )
+                        .fillMaxWidth()
+                        .weight(0.9f),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp)
+                ) {
+                    SpeedGaugeCard(
+                        speedKmh = displaySpeedKmh,
+                        gpsStatus = gpsStatus,
+                        onStatusClick = onGpsStatusClick,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                    )
+
+                    CockpitWidgetColumn(
+                        widgetManager = widgetManager,
+                        mediaRepository = mediaRepository,
+                        onOpenMusicPlayer = onOpenMusicPlayer ?: { onNavigate(DivineDeckRoute.MUSIC) },
+                        onNavigateToWidgets = { onNavigate(DivineDeckRoute.WIDGETS) },
+                        horizontal = true,
+                        modifier = Modifier
+                            .weight(2f)
+                            .fillMaxHeight()
+                    )
+                }
             }
+
+            // ZONA 3: DOCK LATERAL DERECHO (mismos 7 apartados, misma navegación)
+            AutomotiveBottomDock(
+                currentRoute = currentRoute,
+                onNavigate = onNavigate,
+                vertical = true,
+                modifier = Modifier.fillMaxHeight()
+            )
         }
     } else {
         // DISTRIBUCIÓN ORIGINAL (sin cambios)

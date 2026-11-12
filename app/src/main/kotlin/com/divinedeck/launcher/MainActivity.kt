@@ -40,6 +40,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.divinedeck.launcher.core.designsystem.components.AutomotiveBottomDock
 import com.divinedeck.launcher.core.designsystem.components.CockpitStatusBar
+import com.divinedeck.launcher.core.designsystem.theme.CockpitLayout
 import com.divinedeck.launcher.core.designsystem.theme.DivineDeckTheme
 import com.divinedeck.launcher.core.navigation.DivineDeckRoute
 import com.divinedeck.launcher.feature.appcenter.data.AppLauncherRepositoryImpl
@@ -72,7 +73,9 @@ import com.divinedeck.launcher.feature.widgets.ui.WidgetCenterScreen
  * 1. Barra superior de estado discreta con estado GPS honesto (`CockpitStatusBar`).
  * 2. Vehículo protagonista en el centro con velocidad digital real debajo (`VehicleShowcaseCard`).
  * 3. Dos espacios verticales configurables para widgets en el lateral derecho (`CockpitWidgetColumn`).
- * 4. Dock de navegación horizontal centrado en la parte inferior sólo con iconos (`AutomotiveBottomDock`).
+ * 4. Dock de navegación sólo con iconos (`AutomotiveBottomDock`): horizontal
+ *    centrado en la parte inferior, salvo en Distribución Panorámica, donde va
+ *    lateral a la derecha del modelo 3D.
  */
 class MainActivity : ComponentActivity() {
 
@@ -259,7 +262,8 @@ class MainActivity : ComponentActivity() {
                                                 currentRoute = destination
                                             },
                                             onGpsStatusClick = requestLocationPermissionOrSettings,
-                                            layout = cockpitLayout
+                                            layout = cockpitLayout,
+                                            currentRoute = currentRoute
                                         )
                                         DivineDeckRoute.MUSIC -> {
                                             // Conmutado por AnimatedContent superior en modo inmersivo
@@ -282,16 +286,21 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
 
-                                // ZONA 4: Dock Horizontal Inferior Minimalista (Sólo iconos)
-                                AutomotiveBottomDock(
-                                    currentRoute = currentRoute,
-                                    onNavigate = { destination ->
-                                        if (destination == DivineDeckRoute.MUSIC) {
-                                            musicDestination = MusicCenterDestination.DEFAULT
+                                // ZONA 4: Dock Horizontal Inferior Minimalista (Sólo iconos).
+                                // En Distribución Panorámica el dock es lateral (dentro del
+                                // Cockpit, a la derecha del modelo 3D), así que aquí no se
+                                // dibuja el inferior para no duplicarlo.
+                                if (!(currentRoute == DivineDeckRoute.COCKPIT && cockpitLayout == CockpitLayout.PANORAMICA)) {
+                                    AutomotiveBottomDock(
+                                        currentRoute = currentRoute,
+                                        onNavigate = { destination ->
+                                            if (destination == DivineDeckRoute.MUSIC) {
+                                                musicDestination = MusicCenterDestination.DEFAULT
+                                            }
+                                            currentRoute = destination
                                         }
-                                        currentRoute = destination
-                                    }
-                                )
+                                    )
+                                }
                             }
                         }
                     }
