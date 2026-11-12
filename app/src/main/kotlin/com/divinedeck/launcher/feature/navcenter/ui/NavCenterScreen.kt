@@ -6,8 +6,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
@@ -44,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -55,8 +59,24 @@ import com.divinedeck.launcher.feature.navcenter.domain.NavLatLng
 import com.divinedeck.launcher.feature.navcenter.domain.NavPlace
 import com.divinedeck.launcher.feature.navcenter.domain.NavigationLauncherRepository
 import com.divinedeck.launcher.feature.navcenter.domain.PoiKind
+import com.stadiamaps.ferrostar.composeui.config.NavigationViewComponentBuilder
+import com.stadiamaps.ferrostar.composeui.config.VisualNavigationViewConfig
+import com.stadiamaps.ferrostar.composeui.config.withInstructionsView
+import com.stadiamaps.ferrostar.composeui.config.withProgressView
+import com.stadiamaps.ferrostar.composeui.theme.DefaultInstructionRowTheme
+import com.stadiamaps.ferrostar.composeui.theme.DefaultTripProgressViewTheme
+import com.stadiamaps.ferrostar.composeui.theme.InstructionRowTheme
+import com.stadiamaps.ferrostar.composeui.theme.TripProgressViewStyle
+import com.stadiamaps.ferrostar.composeui.theme.TripProgressViewTheme
+import com.stadiamaps.ferrostar.composeui.views.components.InstructionsView
+import com.stadiamaps.ferrostar.composeui.views.components.TripProgressView
 import com.stadiamaps.ferrostar.maplibreui.NavigationMapClickResult
+import com.stadiamaps.ferrostar.maplibreui.NavigationMapPuckStyle
+import com.stadiamaps.ferrostar.maplibreui.routeline.BorderedPolyline
+import com.stadiamaps.ferrostar.maplibreui.routeline.RouteOverlayBuilder
 import com.stadiamaps.ferrostar.maplibreui.runtime.NavigationCameraMode
+import com.stadiamaps.ferrostar.maplibreui.runtime.NavigationMapState
+import com.stadiamaps.ferrostar.maplibreui.runtime.navigationCameraOptions
 import com.stadiamaps.ferrostar.maplibreui.runtime.rememberNavigationMapState
 import com.stadiamaps.ferrostar.maplibreui.views.DynamicallyOrientingNavigationView
 import kotlinx.coroutines.delay
@@ -87,10 +107,107 @@ fun NavCenterScreen(
     val viewModel: NavCenterViewModel = viewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val palette = DivineDeckTheme.palette
-    val mapState = rememberNavigationMapState()
 
-    // Cámara inicial: Tepic, Nayarit.
+    // Opciones de cámara: la vista ya aplica el tilt de navegación (45°
+    // Automotive) solo al navegar; en exploración el tilt es 0 por
+    // construcción (browsingUser). Con destino seleccionado, el padding
+    // inferior deja hueco para la hoja del destino.
+    val cameraOptions = navigationCameraOptions()
+    val effectiveCameraOptions = if (uiState.isNavigating) {
+        cameraOptions
+    } else {
+        cameraOptions.copy(
+            browsingPadding = PaddingValues(
+                bottom = if (uiState.selectedPlace != null) 220.dp else 0.dp
+            )
+        )
+    }
+    val mapState = rememberNavigationMapState(navigationCameraOptions = effectiveCameraOptions)
+
+    // Temas Ferrostar re-teñidos con la paleta DivineDeck, construidos una
+    // sola vez por tema (no en cada fix GPS de 1 Hz). Los formateadores de
+    // distancia/duración son los de Ferrostar por defecto (localizados).
+    // Nota: el radio del banner (10 dp) y la píldora del progreso (50 dp)
+    // los dibuja Ferrostar por dentro y el tema no los puede cambiar.
+    val navViews = remember(palette) {
+        val instructionTheme = object : InstructionRowTheme {
+            override val distanceTextStyle: TextStyle
+                @get:Composable get() = DefaultInstructionRowTheme.distanceTextStyle.copy(color = palette.accent)
+            override val instructionTextStyle: TextStyle
+                @get:Composable get() = DefaultInstructionRowTheme.instructionTextStyle.copy(color = palette.textPrimary)
+            override val iconTintColor: Color
+                @get:Composable get() = palette.accent
+            override val backgroundColor: Color
+                @get:Composable get() = palette.elevatedSurface
+        }
+        val progressTheme = object : TripProgressViewTheme {
+            override val style: TripProgressViewStyle
+                @get:Composable get() = TripProgressViewStyle.SIMPLIFIED
+            override val measurementTextStyle: TextStyle
+                @get:Composable get() = DefaultTripProgressViewTheme.measurementTextStyle.copy(color = palette.textPrimary)
+            override val secondaryTextStyle: TextStyle
+                @get:Composable get() = DefaultTripProgressViewTheme.secondaryTextStyle.copy(color = palette.textSecondary)
+            // Botón de salida con fondo de acento: el icono va en onAccent
+            // para seguir siendo legible (icono en acento sobre acento no
+            // se vería). El botón de silencio lo dibuja Ferrostar con los
+            // colores del tema Material de DivineDeck.
+            override val exitIconColor: Color
+                @get:Composable get() = palette.onAccent
+            override val exitButtonBackgroundColor: Color
+                @get:Composable get() = palette.accent
+            override val backgroundColor: Color
+                @get:Composable get() = palette.surface
+        }
+        NavigationViewComponentBuilder.Default()
+            .withInstructionsView { viewModifier, navUiState ->
+                navUiState.visualInstruction?.let { instructions ->
+                    InstructionsView(
+                        modifier = viewModifier,
+                        instructions = instructions,
+                        theme = instructionTheme,
+                        remainingSteps = navUiState.remainingSteps,
+                        distanceToNextManeuver = navUiState.progress?.distanceToNextManeuver
+                    )
+                }
+            }
+            .withProgressView { viewModifier, navUiState, onTapExit ->
+                navUiState.progress?.let { progress ->
+                    TripProgressView(
+                        modifier = viewModifier,
+                        theme = progressTheme,
+                        progress = progress,
+                        onTapExit = onTapExit
+                    )
+                }
+            }
+    }
+
+    val puckStyle = remember(palette) {
+        NavigationMapPuckStyle(
+            dotFillColorCurrentLocation = palette.accent,
+            dotFillColorOldLocation = palette.accent,
+            accuracyStrokeColor = palette.accent,
+            accuracyFillColor = palette.accent.copy(alpha = 0.16f),
+            bearingColor = palette.accentSecondary
+        )
+    }
+
+    val routeOverlay = remember(palette) {
+        RouteOverlayBuilder { navUiState ->
+            navUiState.routeGeometry?.let { geometry ->
+                BorderedPolyline(
+                    points = geometry,
+                    color = palette.accent,
+                    borderColor = palette.accentSecondary
+                )
+            }
+        }
+    }
+
+    // Cámara inicial: Tepic, Nayarit. FREE antes de escribir la posición
+    // directamente: en modo FOLLOW la vista de seguimiento la sobrescribe.
     LaunchedEffect(Unit) {
+        mapState.cameraMode = NavigationCameraMode.FREE
         mapState.cameraState.position = mapState.cameraState.position.copy(
             target = Position(
                 longitude = NavCenterViewModel.TEPIC_CENTER.longitude,
@@ -113,6 +230,12 @@ fun NavCenterScreen(
         )
     }
 
+    // Al arrancar la navegación, seguir al usuario con rumbo (centrado,
+    // mapa girando con el heading). recenter() pone FOLLOW_USER_WITH_BEARING.
+    LaunchedEffect(uiState.isNavigating) {
+        if (uiState.isNavigating) mapState.recenter(isNavigating = true)
+    }
+
     // El mensaje de estado se esconde solo a los pocos segundos.
     if (uiState.statusMessage != null) {
         LaunchedEffect(uiState.statusMessage) {
@@ -126,7 +249,14 @@ fun NavCenterScreen(
             modifier = Modifier.fillMaxSize(),
             baseStyle = BaseStyle.Uri("https://tiles.openfreemap.org/styles/liberty"),
             navigationMapState = mapState,
+            navigationCameraOptions = effectiveCameraOptions,
             viewModel = viewModel.navigationViewModel,
+            locationPuckStyle = puckStyle,
+            // Sin zoom ni recenter de Ferrostar: el recenter es el botón
+            // propio (estilo Automotive) y el silencio se mantiene.
+            config = VisualNavigationViewConfig(showMute = true, showZoom = false, showRecenter = false),
+            views = navViews,
+            routeOverlayBuilder = routeOverlay,
             showDefaultPuck = true,
             onTapExit = { viewModel.stopNavigation() },
             onMapClick = { coord, _ ->
@@ -152,7 +282,7 @@ fun NavCenterScreen(
                     PlaceMarker(
                         layerId = "marker-poi-${poi.id}",
                         place = poi,
-                        color = if (poi.kind == PoiKind.FUEL) Color(0xFFFF8A00) else Color(0xFF9C27B0),
+                        color = if (poi.kind == PoiKind.FUEL) palette.accent else palette.accentSecondary,
                         radiusDp = 8f
                     )
                 }
@@ -161,11 +291,21 @@ fun NavCenterScreen(
                     PlaceMarker(
                         layerId = "marker-search-${result.id}",
                         place = result,
-                        color = palette.accentSecondary,
+                        color = palette.textSecondary,
                         radiusDp = 8f
                     )
                 }
             }
+        )
+
+        // Botón propio de recentrar: solo navegando y solo si el usuario
+        // movió el mapa (la cámara ya no sigue al usuario).
+        RecenterButton(
+            mapState = mapState,
+            isNavigating = uiState.isNavigating,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 12.dp, bottom = 132.dp)
         )
 
         if (!uiState.isNavigating) {
@@ -200,7 +340,7 @@ fun NavCenterScreen(
                         }
                     },
                     singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(18.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = palette.surface.copy(alpha = 0.95f),
                         unfocusedContainerColor = palette.surface.copy(alpha = 0.95f),
@@ -215,17 +355,13 @@ fun NavCenterScreen(
                 // Resultados de búsqueda.
                 if (uiState.searchResults.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = palette.surface.copy(alpha = 0.97f),
-                        border = BorderStroke(1.dp, palette.border),
+                    AutomotiveCard(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(max = 300.dp)
-                                .padding(vertical = 4.dp)
                         ) {
                             items(uiState.searchResults, key = { it.id }) { result ->
                                 Column(
@@ -239,6 +375,31 @@ fun NavCenterScreen(
                                         Text(result.detail, style = MaterialTheme.typography.bodyMedium, color = palette.textSecondary)
                                     }
                                 }
+                            }
+                        }
+                    }
+                } else if (uiState.searchQuery.isNotBlank() && !uiState.isSearching) {
+                    // Nunca dejar un hueco en blanco: error con reintento,
+                    // o "sin resultados" cuando el servicio sí respondió.
+                    Spacer(modifier = Modifier.height(8.dp))
+                    AutomotiveCard(
+                        contentPadding = 0.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            val error = uiState.searchError
+                            if (error != null) {
+                                Text(error, style = MaterialTheme.typography.bodyMedium, color = palette.textPrimary)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                AutomotiveSecondaryButton(onClick = viewModel::retrySearch) {
+                                    Text("Reintentar", color = palette.textPrimary)
+                                }
+                            } else {
+                                Text(
+                                    "Sin resultados para «${uiState.searchQuery}»",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = palette.textSecondary
+                                )
                             }
                         }
                     }
@@ -303,10 +464,8 @@ fun NavCenterScreen(
 
             // --- Mensaje de estado (guardado, avisos) ---
             uiState.statusMessage?.let { message ->
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = palette.surface.copy(alpha = 0.97f),
-                    border = BorderStroke(1.dp, palette.border),
+                AutomotiveCard(
+                    contentPadding = 0.dp,
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .padding(top = 12.dp)
@@ -324,6 +483,7 @@ fun NavCenterScreen(
             // --- Hoja del destino seleccionado ---
             uiState.selectedPlace?.let { place ->
                 AutomotiveCard(
+                    contentPadding = 0.dp,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(12.dp)
@@ -346,7 +506,7 @@ fun NavCenterScreen(
                                     else -> place.detail
                                 }
                                 if (!address.isNullOrBlank()) {
-                                    Text(address, style = MaterialTheme.typography.bodyMedium, color = palette.textSecondary)
+                                    Text(address, style = MaterialTheme.typography.bodyLarge, color = palette.textSecondary)
                                 }
                             }
                             IconButton(onClick = viewModel::clearSelection) {
@@ -405,12 +565,13 @@ fun NavCenterScreen(
         // --- Llegada al destino ---
         if (uiState.hasArrived && !uiState.isNavigating) {
             AutomotiveCard(
+                contentPadding = 0.dp,
                 modifier = Modifier
                     .align(Alignment.Center)
                     .width(420.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(20.dp),
+                    modifier = Modifier.padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text("¡Llegaste a tu destino!", style = MaterialTheme.typography.titleLarge, color = palette.textPrimary)
@@ -426,6 +587,44 @@ fun NavCenterScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Botón redondo propio para recentrar el mapa al navegar. Solo se muestra
+ * cuando la cámara ya no sigue al usuario (el usuario movió el mapa).
+ * Lee mapState.cameraMode en este composable estrecho para que solo este
+ * botón se recomponga cuando un gesto cambia el modo de cámara.
+ */
+@Composable
+private fun RecenterButton(
+    mapState: NavigationMapState,
+    isNavigating: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val cameraMode = mapState.cameraMode
+    if (!isNavigating) return
+    if (cameraMode == NavigationCameraMode.FOLLOW_USER ||
+        cameraMode == NavigationCameraMode.FOLLOW_USER_WITH_BEARING
+    ) {
+        return
+    }
+    val palette = DivineDeckTheme.palette
+    Surface(
+        onClick = { mapState.recenter(isNavigating = true) },
+        modifier = modifier.size(48.dp),
+        shape = CircleShape,
+        color = palette.surface.copy(alpha = 0.97f),
+        border = BorderStroke(1.dp, palette.border)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                Icons.Default.Navigation,
+                contentDescription = "Recentrar",
+                tint = palette.accent,
+                modifier = Modifier.size(24.dp)
+            )
         }
     }
 }
@@ -466,11 +665,13 @@ private fun NavChip(
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = if (selected) palette.accent else palette.surface.copy(alpha = 0.95f),
-        border = BorderStroke(1.dp, if (selected) palette.accent else palette.border),
-        modifier = Modifier.clickable(onClick = onClick)
+        border = BorderStroke(1.dp, if (selected) palette.accent else palette.borderSubtle),
+        modifier = Modifier
+            .defaultMinSize(minHeight = 48.dp)
+            .clickable(onClick = onClick)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (loading) {

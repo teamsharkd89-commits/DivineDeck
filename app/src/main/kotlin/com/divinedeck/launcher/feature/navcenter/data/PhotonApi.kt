@@ -11,6 +11,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -58,6 +59,9 @@ object PhotonApi {
         val city: String? = null,
         val state: String? = null,
         val country: String? = null,
+        val district: String? = null,
+        val postcode: String? = null,
+        val type: String? = null,
         val osm_key: String? = null,
         val osm_value: String? = null
     )
@@ -67,22 +71,32 @@ object PhotonApi {
         near: NavLatLng?,
         limit: Int = 5
     ): List<NavPlace> {
-        val response: PhotonResponse = NavHttp.client.get(BASE_URL) {
-            parameter("q", query)
-            parameter("limit", limit)
-            parameter("lang", "es")
-            parameter("countrycode", "mx")
-            if (near != null) {
-                parameter("lat", near.latitude)
-                parameter("lon", near.longitude)
-            }
-            header("User-Agent", "DivineDeck/1.0 (Android car launcher)")
-        }.body()
+        // Photon a veces tarda o no responde: sin timeout la búsqueda se
+        // quedaba colgada. 8 s solo aquí: el cliente compartido NavHttp
+        // también lo usa Overpass, que envía consultas [timeout:25].
+        val response: PhotonResponse = withTimeout(8_000) {
+            NavHttp.client.get(BASE_URL) {
+                parameter("q", query)
+                parameter("limit", limit)
+                parameter("lang", "es")
+                parameter("countrycode", "mx")
+                if (near != null) {
+                    parameter("lat", near.latitude)
+                    parameter("lon", near.longitude)
+                }
+                header("User-Agent", "DivineDeck/1.0 (Android car launcher)")
+            }.body()
+        }
         return response.features.mapNotNull { feature ->
             val coords = feature.geometry?.coordinates ?: return@mapNotNull null
             if (coords.size < 2) return@mapNotNull null
             val props = feature.properties ?: return@mapNotNull null
-            val name = props.name?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            // Nombre con cadena de respaldo: muchos resultados de Photon
+            // (colonias, calles) vienen sin `name`; antes se descartaban.
+            val name = props.name?.takeIf { it.isNotBlank() }
+                ?: listOfNotNull(props.street, props.housenumber).joinToString(" ").takeIf { it.isNotBlank() }
+                ?: props.district?.takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
             val detail = listOfNotNull(
                 listOfNotNull(props.street, props.housenumber).joinToString(" ").takeIf { it.isNotBlank() },
                 listOfNotNull(props.city, props.state).joinToString(", ").takeIf { it.isNotBlank() }

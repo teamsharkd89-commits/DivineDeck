@@ -1,6 +1,8 @@
 package com.divinedeck.launcher.feature.navcenter.data
 
 import com.divinedeck.launcher.feature.navcenter.domain.NavLatLng
+import com.divinedeck.launcher.feature.navcenter.domain.NavPlace
+import com.divinedeck.launcher.feature.navcenter.domain.PoiKind
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -20,6 +22,7 @@ import kotlinx.coroutines.sync.withLock
  */
 object NominatimApi {
     private const val BASE_URL = "https://nominatim.openstreetmap.org/reverse"
+    private const val SEARCH_URL = "https://nominatim.openstreetmap.org/search"
     private const val MIN_INTERVAL_MS = 1_100L
     private val mutex = Mutex()
     private var lastCallMs = 0L
@@ -28,6 +31,55 @@ object NominatimApi {
     private data class ReverseResponse(
         val display_name: String? = null
     )
+
+    @Serializable
+    private data class SearchResponse(
+        val display_name: String? = null,
+        val lat: String? = null,
+        val lon: String? = null
+    )
+
+    /**
+     * Búsqueda de respaldo cuando Photon falla o agota su timeout.
+     * Política oficial: Nominatim NO es para autocompletado y permite
+     * 1 petición/segundo — solo se llama desde el ViewModel cuando la
+     * llamada debounced de Photon lanza, o desde el botón "Reintentar".
+     * Nunca por cada tecla.
+     */
+    suspend fun search(query: String, near: NavLatLng?, limit: Int = 5): List<NavPlace> {
+        mutex.withLock {
+            val now = System.currentTimeMillis()
+            val wait = MIN_INTERVAL_MS - (now - lastCallMs)
+            if (wait > 0) kotlinx.coroutines.delay(wait)
+            lastCallMs = System.currentTimeMillis()
+        }
+        val response: List<SearchResponse> = NavHttp.client.get(SEARCH_URL) {
+            parameter("format", "jsonv2")
+            parameter("q", query)
+            parameter("countrycodes", "mx")
+            parameter("accept-language", "es")
+            parameter("limit", limit)
+            if (near != null) {
+                parameter("lat", near.latitude)
+                parameter("lon", near.longitude)
+            }
+            header("User-Agent", "DivineDeck/1.0 (Android car launcher; Tepic, Nayarit, MX)")
+        }.body()
+        return response.mapNotNull { item ->
+            val displayName = item.display_name?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val lat = item.lat?.toDoubleOrNull() ?: return@mapNotNull null
+            val lon = item.lon?.toDoubleOrNull() ?: return@mapNotNull null
+            val name = displayName.substringBefore(",").trim().takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
+            NavPlace(
+                id = "nominatim:$lat,$lon:$name",
+                name = name,
+                detail = displayName,
+                latLng = NavLatLng(latitude = lat, longitude = lon),
+                kind = PoiKind.SEARCH
+            )
+        }
+    }
 
     suspend fun reverse(point: NavLatLng): String? {
         // Throttle: nunca más de 1 llamada por segundo.

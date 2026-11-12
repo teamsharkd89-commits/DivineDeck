@@ -62,6 +62,7 @@ data class NavCenterUiState(
     val searchQuery: String = "",
     val searchResults: List<NavPlace> = emptyList(),
     val isSearching: Boolean = false,
+    val searchError: String? = null,
     val poiResults: List<NavPlace> = emptyList(),
     val activePoiKind: PoiKind? = null,
     val isLoadingPois: Boolean = false,
@@ -209,35 +210,70 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
     // --- Búsqueda (Photon, con debounce) ---
 
     fun onSearchQueryChange(query: String) {
-        _uiState.update { it.copy(searchQuery = query) }
+        _uiState.update { it.copy(searchQuery = query, searchError = null) }
         searchJob?.cancel()
         if (query.isBlank()) {
-            _uiState.update { it.copy(searchResults = emptyList(), isSearching = false) }
+            _uiState.update { it.copy(searchResults = emptyList(), isSearching = false, searchError = null) }
             return
         }
         searchJob = viewModelScope.launch {
             delay(SEARCH_DEBOUNCE_MS)
-            _uiState.update { it.copy(isSearching = true) }
-            val results = try {
+            _uiState.update { it.copy(isSearching = true, searchError = null) }
+            val trimmed = query.trim()
+            // Photon primero; si lanza (incluido su timeout de 8 s), un solo
+            // intento de respaldo con Nominatim (1 req/s, no autocompletado).
+            val photonResults: List<NavPlace>? = try {
                 withContext(Dispatchers.IO) {
-                    PhotonApi.search(query.trim(), _uiState.value.currentLocation)
+                    PhotonApi.search(trimmed, _uiState.value.currentLocation)
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Búsqueda Photon falló: ${e.message}")
-                emptyList()
+                null
             }
-            _uiState.update { it.copy(searchResults = results, isSearching = false) }
+            if (photonResults != null) {
+                _uiState.update { it.copy(searchResults = photonResults, isSearching = false, searchError = null) }
+                return@launch
+            }
+            // "Colonia Centro, Tepic" da 0 resultados en Nominatim;
+            // "Centro Histórico, Tepic" sí da 1: quitar el prefijo.
+            val nominatimQuery = trimmed.removePrefix("Colonia ").trim()
+            val fallbackResults: List<NavPlace>? = try {
+                withContext(Dispatchers.IO) {
+                    NominatimApi.search(nominatimQuery, _uiState.value.currentLocation)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Búsqueda Nominatim falló: ${e.message}")
+                null
+            }
+            if (fallbackResults.isNullOrEmpty()) {
+                _uiState.update {
+                    it.copy(
+                        searchResults = emptyList(),
+                        isSearching = false,
+                        searchError = "No se pudo buscar: el servicio no responde. Revisa tu internet e inténtalo de nuevo."
+                    )
+                }
+            } else {
+                _uiState.update { it.copy(searchResults = fallbackResults, isSearching = false, searchError = null) }
+            }
         }
+    }
+
+    /** Reintenta la búsqueda actual (botón "Reintentar" del estado vacío). */
+    fun retrySearch() {
+        val query = _uiState.value.searchQuery
+        if (query.isBlank()) return
+        onSearchQueryChange(query)
     }
 
     fun onSearchResultSelected(place: NavPlace) {
         selectPlace(place, moveCamera = true)
-        _uiState.update { it.copy(searchQuery = "", searchResults = emptyList()) }
+        _uiState.update { it.copy(searchQuery = "", searchResults = emptyList(), searchError = null) }
     }
 
     fun clearSearch() {
         searchJob?.cancel()
-        _uiState.update { it.copy(searchQuery = "", searchResults = emptyList(), isSearching = false) }
+        _uiState.update { it.copy(searchQuery = "", searchResults = emptyList(), isSearching = false, searchError = null) }
     }
 
     // --- Selección de destino (toque en el mapa) ---
@@ -389,7 +425,8 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
                         isCalculatingRoute = false,
                         selectedPlace = place,
                         searchResults = emptyList(),
-                        searchQuery = ""
+                        searchQuery = "",
+                        searchError = null
                     )
                 }
             } catch (e: Exception) {
