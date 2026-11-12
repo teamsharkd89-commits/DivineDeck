@@ -6,7 +6,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import org.maplibre.compose.offline.AndroidOfflineManager
+import org.maplibre.compose.offline.getOfflineManager
 import org.maplibre.compose.offline.DownloadProgress
 import org.maplibre.compose.offline.DownloadStatus
 import org.maplibre.compose.offline.OfflineManager
@@ -17,7 +17,7 @@ import org.maplibre.spatialk.geojson.BoundingBox
 /**
  * Paquete de mapa offline de Tepic con MapLibre Compose 0.13.0
  * (OfflineManager / OfflinePack, verificado en el AAR: no existe una clase
- * `OfflineStorage` en esta versión; la API es AndroidOfflineManager).
+ * `OfflineStorage` en esta versión; la API pública es getOfflineManager()).
  *
  * Descarga ~1.800 teselas del estilo Liberty de OpenFreeMap (z10–z15,
  * ~4 MB: dentro del límite de su ToS, ≤3.000 teselas / 50 MB, con el
@@ -33,7 +33,7 @@ sealed interface MapPackState {
 
 class OfflineMapPackManager(context: Context) {
     private val appContext = context.applicationContext
-    private val manager: OfflineManager = AndroidOfflineManager(appContext)
+    private val manager: OfflineManager = getOfflineManager(appContext)
 
     private val _state = MutableStateFlow<MapPackState>(MapPackState.NotDownloaded)
     val state: StateFlow<MapPackState> = _state.asStateFlow()
