@@ -39,6 +39,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.divinedeck.launcher.core.designsystem.theme.DivineDeckTheme
+import com.divinedeck.launcher.core.designsystem.theme.ThemePreset
 import com.divinedeck.launcher.feature.gps.domain.model.GpsStatus
 import kotlin.math.cos
 import kotlin.math.min
@@ -66,6 +67,11 @@ fun SpeedGaugeCard(
     modifier: Modifier = Modifier
 ) {
     val palette = DivineDeckTheme.palette
+    // Vaporwave: arco y número en cian, aguja en rosa (como el mockup).
+    val isVaporwave = palette.preset == ThemePreset.VAPORWAVE
+    val gaugeArcColor = if (isVaporwave) palette.accentSecondary else palette.accent
+    val gaugeNumberColor = if (isVaporwave) palette.accentSecondary else palette.accent
+    val gaugeUnitColor = if (isVaporwave) palette.accent else palette.textSecondary
     val textMeasurer = rememberTextMeasurer()
     val animatedSpeed by animateFloatAsState(
         targetValue = speedKmh.coerceIn(0f, MAX_GAUGE_SPEED_KMH),
@@ -141,7 +147,7 @@ fun SpeedGaugeCard(
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                palette.accent.copy(alpha = 0.10f),
+                                gaugeArcColor.copy(alpha = 0.10f),
                                 Color.Transparent
                             ),
                             center = center,
@@ -154,7 +160,7 @@ fun SpeedGaugeCard(
                     // Arco de fondo (240°) teñido con el acento del tema,
                     // como el dial rojo del mockup Rojo Sport
                     drawArc(
-                        color = palette.accent.copy(alpha = 0.22f),
+                        color = gaugeArcColor.copy(alpha = 0.22f),
                         startAngle = GAUGE_START_ANGLE,
                         sweepAngle = GAUGE_SWEEP_ANGLE,
                         useCenter = false,
@@ -177,7 +183,7 @@ fun SpeedGaugeCard(
                     // Arco de progreso según la velocidad, con halo
                     if (speedFraction > 0f) {
                         drawArc(
-                            color = palette.accent.copy(alpha = 0.14f),
+                            color = gaugeArcColor.copy(alpha = 0.14f),
                             startAngle = GAUGE_START_ANGLE,
                             sweepAngle = GAUGE_SWEEP_ANGLE * speedFraction,
                             useCenter = false,
@@ -186,7 +192,7 @@ fun SpeedGaugeCard(
                             style = Stroke(width = strokeWidth * 1.8f, cap = StrokeCap.Round)
                         )
                         drawArc(
-                            color = palette.accent,
+                            color = gaugeArcColor,
                             startAngle = GAUGE_START_ANGLE,
                             sweepAngle = GAUGE_SWEEP_ANGLE * speedFraction,
                             useCenter = false,
@@ -200,7 +206,7 @@ fun SpeedGaugeCard(
                     for (j in 1..17 step 2) {
                         val angle = GAUGE_START_ANGLE + j * (GAUGE_SWEEP_ANGLE / 18f)
                         drawLine(
-                            color = palette.accent.copy(alpha = 0.30f),
+                            color = gaugeArcColor.copy(alpha = 0.30f),
                             start = polar(angle.toDouble(), radius * 0.90f),
                             end = polar(angle.toDouble(), radius * 0.97f),
                             strokeWidth = 1.5.dp.toPx(),
@@ -212,7 +218,7 @@ fun SpeedGaugeCard(
                     for (i in 0..9) {
                         val angle = GAUGE_START_ANGLE + i * (GAUGE_SWEEP_ANGLE / 9f)
                         drawLine(
-                            color = palette.accent.copy(alpha = 0.60f),
+                            color = gaugeArcColor.copy(alpha = 0.60f),
                             start = polar(angle.toDouble(), radius * 0.86f),
                             end = polar(angle.toDouble(), radius * 0.98f),
                             strokeWidth = 2.5.dp.toPx(),
@@ -222,7 +228,7 @@ fun SpeedGaugeCard(
 
                     // Números del dial (0, 60, 120, 180) fuera del arco
                     val labelStyle = TextStyle(
-                        color = palette.textSecondary,
+                        color = if (isVaporwave) palette.accentSecondary else palette.textSecondary,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -300,7 +306,7 @@ fun SpeedGaugeCard(
                             fontWeight = FontWeight.Light,
                             letterSpacing = (-1).sp
                         ),
-                        color = palette.accent
+                        color = gaugeNumberColor
                     )
                     Text(
                         text = "KM/H",
@@ -309,7 +315,7 @@ fun SpeedGaugeCard(
                             fontWeight = FontWeight.SemiBold,
                             letterSpacing = 2.sp
                         ),
-                        color = palette.textSecondary
+                        color = gaugeUnitColor
                     )
                 }
             }
@@ -340,7 +346,7 @@ fun SpeedGaugeCard(
                         fontWeight = FontWeight.Medium,
                         letterSpacing = 1.2.sp
                     ),
-                    color = palette.accent
+                    color = if (isVaporwave) palette.accentSecondary else palette.accent
                 )
             }
         }

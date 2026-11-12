@@ -44,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.divinedeck.launcher.core.designsystem.theme.DivineDeckTheme
+import com.divinedeck.launcher.core.designsystem.theme.ThemePreset
 import com.divinedeck.launcher.feature.gps.domain.model.GpsStatus
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -67,6 +68,11 @@ fun CockpitStatusBar(
 ) {
     val context = LocalContext.current
     val palette = DivineDeckTheme.palette
+    // Vaporwave: hora, GPS, wifi/bluetooth y batería en cian; combustible,
+    // MODO AUTOMÓVIL y SALIR en rosa/cian como el mockup.
+    val isVaporwave = palette.preset == ThemePreset.VAPORWAVE
+    val statusCyan = if (isVaporwave) palette.accentSecondary else palette.accent
+    val exitColor = if (isVaporwave) palette.accentSecondary else palette.statusAlert
 
     var currentTime by remember { mutableStateOf("") }
     var currentDate by remember { mutableStateOf("") }
@@ -110,7 +116,7 @@ fun CockpitStatusBar(
                         fontSize = 15.sp,
                         letterSpacing = 0.8.sp
                     ),
-                    color = palette.accent
+                    color = statusCyan
                 )
 
                 Box(
@@ -146,7 +152,7 @@ fun CockpitStatusBar(
                     GpsStatus.WEAK_SIGNAL -> palette.accentSecondary
                     GpsStatus.SEARCHING -> palette.accent
                     GpsStatus.UNRELIABLE_SPEED -> palette.statusAlert
-                    GpsStatus.NOT_AVAILABLE -> palette.accent
+                    GpsStatus.NOT_AVAILABLE -> statusCyan
                 }
 
                 Row(
@@ -195,13 +201,13 @@ fun CockpitStatusBar(
                     Icon(
                         imageVector = Icons.Default.Wifi,
                         contentDescription = "Estado Wi-Fi",
-                        tint = palette.accent,
+                        tint = statusCyan,
                         modifier = Modifier.size(14.dp)
                     )
                     Icon(
                         imageVector = Icons.Default.Bluetooth,
                         contentDescription = "Estado Bluetooth",
-                        tint = palette.accent,
+                        tint = statusCyan,
                         modifier = Modifier.size(14.dp)
                     )
                 }
@@ -215,7 +221,7 @@ fun CockpitStatusBar(
                         Icon(
                             imageVector = Icons.Default.BatteryFull,
                             contentDescription = "Batería",
-                            tint = palette.accent,
+                            tint = statusCyan,
                             modifier = Modifier.size(14.dp)
                         )
                         Text(
@@ -224,7 +230,7 @@ fun CockpitStatusBar(
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Medium
                             ),
-                            color = palette.accent
+                            color = statusCyan
                         )
                     }
                 }
@@ -263,8 +269,8 @@ fun CockpitStatusBar(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(10.dp))
-                        .background(palette.statusAlert.copy(alpha = 0.1f))
-                        .border(0.8.dp, palette.statusAlert.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                        .background(exitColor.copy(alpha = 0.1f))
+                        .border(0.8.dp, exitColor.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
                         .clickable { onRequestExit() }
                         .padding(horizontal = 7.dp, vertical = 3.dp)
                 ) {
@@ -275,7 +281,7 @@ fun CockpitStatusBar(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ExitToApp,
                             contentDescription = "Salir",
-                            tint = palette.statusAlert,
+                            tint = exitColor,
                             modifier = Modifier.size(11.dp)
                         )
                         Text(
@@ -284,7 +290,7 @@ fun CockpitStatusBar(
                                 fontSize = 8.5.sp,
                                 fontWeight = FontWeight.SemiBold
                             ),
-                            color = palette.statusAlert
+                            color = exitColor
                         )
                     }
                 }

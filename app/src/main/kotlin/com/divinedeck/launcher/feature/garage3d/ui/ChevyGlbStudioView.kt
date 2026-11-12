@@ -104,7 +104,9 @@ fun ChevyGlbStudioView(
             debugModeOverride = state.debugVisualModeOverride,
             bgColor = palette.background,
             accentColor = palette.accent,
-            hideFloorShadow = palette.preset == ThemePreset.ROJO_SPORT
+            secondaryColor = palette.accentSecondary,
+            vaporwave = palette.preset == ThemePreset.VAPORWAVE,
+            hideFloorShadow = palette.preset == ThemePreset.ROJO_SPORT || palette.preset == ThemePreset.VAPORWAVE
         )
     }
 
@@ -230,6 +232,10 @@ private class ChevyGlbOpenGLRenderer(
     @Volatile private var accR: Float = 1.0f
     @Volatile private var accG: Float = 0.71f
     @Volatile private var accB: Float = 0.28f
+    @Volatile private var secR: Float = 0.0f
+    @Volatile private var secG: Float = 0.90f
+    @Volatile private var secB: Float = 1.0f
+    @Volatile private var vaporwave: Boolean = false
     @Volatile private var hideFloorShadow: Boolean = false
     @Volatile private var targetSpeedKmh: Float = 0f
     @Volatile private var targetGpsReliable: Boolean = false
@@ -293,8 +299,10 @@ private class ChevyGlbOpenGLRenderer(
     // Ubicaciones en caché de uniformes Fondo animado
     private var uBgResolution = -1
     private var uBgAccent = -1
+    private var uBgSecondary = -1
     private var uBgTime = -1
     private var uBgSpeedFactor = -1
+    private var uBgVaporwave = -1
 
     private class GpuSubMesh(
         val vboPositions: Int,
@@ -318,6 +326,8 @@ private class ChevyGlbOpenGLRenderer(
         debugModeOverride: SpeedVisualMode? = null,
         bgColor: Color,
         accentColor: Color,
+        secondaryColor: Color,
+        vaporwave: Boolean = false,
         hideFloorShadow: Boolean = false
     ) {
         if (!autoRotate && isAutoRotating) {
@@ -338,6 +348,10 @@ private class ChevyGlbOpenGLRenderer(
         accR = accentColor.red
         accG = accentColor.green
         accB = accentColor.blue
+        secR = secondaryColor.red
+        secG = secondaryColor.green
+        secB = secondaryColor.blue
+        this.vaporwave = vaporwave
         this.hideFloorShadow = hideFloorShadow
     }
 
@@ -388,6 +402,8 @@ private class ChevyGlbOpenGLRenderer(
         uBgAccent = GLES30.glGetUniformLocation(backgroundProgram, "uAccentColor")
         uBgTime = GLES30.glGetUniformLocation(backgroundProgram, "uTime")
         uBgSpeedFactor = GLES30.glGetUniformLocation(backgroundProgram, "uSpeedFactor")
+        uBgSecondary = GLES30.glGetUniformLocation(backgroundProgram, "uSecondaryColor")
+        uBgVaporwave = GLES30.glGetUniformLocation(backgroundProgram, "uVaporwave")
 
         setupFloorQuad()
         setupTrailIndexBuffer()
@@ -511,8 +527,10 @@ private class ChevyGlbOpenGLRenderer(
 
         GLES30.glUniform2f(uBgResolution, viewportWidth.toFloat(), viewportHeight.toFloat())
         GLES30.glUniform3f(uBgAccent, accR, accG, accB)
+        GLES30.glUniform3f(uBgSecondary, secR, secG, secB)
         GLES30.glUniform1f(uBgTime, params.timeSeconds)
         GLES30.glUniform1f(uBgSpeedFactor, params.effectIntensity.coerceIn(0f, 1f))
+        GLES30.glUniform1f(uBgVaporwave, if (vaporwave) 1f else 0f)
 
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3)
 
@@ -867,10 +885,20 @@ private class ChevyGlbOpenGLRenderer(
 
             uniform vec2 uResolution;
             uniform vec3 uAccentColor;
+            uniform vec3 uSecondaryColor;
             uniform float uTime;
             uniform float uSpeedFactor;
+            uniform float uVaporwave;
 
             out vec4 fragColor;
+
+            // Cresta de montañas synthwave: suma de senos absolutos (silueta dentada).
+            float ridge(float x, float s1, float s2, float s3) {
+                return 0.05
+                    + 0.06 * abs(sin(x * 2.3 + s1))
+                    + 0.04 * abs(sin(x * 5.1 + s2))
+                    + 0.02 * abs(sin(x * 9.7 + s3));
+            }
 
             void main() {
                 vec2 uv = gl_FragCoord.xy / uResolution;
@@ -880,13 +908,22 @@ private class ChevyGlbOpenGLRenderer(
                 // Pulso suave siempre vivo + más intenso con la velocidad.
                 float pulse = 0.75 + 0.25 * sin(uTime * 1.6);
                 float energy = 0.35 + 0.65 * uSpeedFactor;
+                float horizon = -0.18;
 
                 // Cielo: oscuro arriba, tinte del acento del tema abajo.
-                vec3 col = mix(
-                    uAccentColor * 0.16,
-                    vec3(0.008, 0.010, 0.020),
-                    smoothstep(-0.7, 0.9, p.y)
-                );
+                // En Vaporwave: morado profundo arriba, magenta en el horizonte.
+                vec3 col;
+                if (uVaporwave > 0.5) {
+                    vec3 skyTop = vec3(0.030, 0.010, 0.090);
+                    vec3 skyHorizon = mix(vec3(0.300, 0.060, 0.320), uAccentColor * 0.55, 0.5);
+                    col = mix(skyHorizon, skyTop, smoothstep(horizon, 0.9, p.y));
+                } else {
+                    col = mix(
+                        uAccentColor * 0.16,
+                        vec3(0.008, 0.010, 0.020),
+                        smoothstep(-0.7, 0.9, p.y)
+                    );
+                }
 
                 // Brillo radial detrás del auto (centro levemente arriba).
                 vec2 glowCenter = vec2(0.0, 0.08);
@@ -894,22 +931,76 @@ private class ChevyGlbOpenGLRenderer(
                 float glow = exp(-d * d * 2.0) * pulse * energy;
                 col += uAccentColor * glow * 0.55;
 
+                if (uVaporwave > 0.5) {
+                    // Sol synthwave con rayas: amarillo arriba, rosa del acento abajo.
+                    // A la izquierda del auto, como en el mockup.
+                    vec2 sunCenter = vec2(-0.55, 0.38);
+                    float sunR = 0.42;
+                    vec2 sunP = p - sunCenter;
+                    sunP.x /= (uResolution.x / uResolution.y);
+                    float sd = length(sunP);
+                    float sunDisc = 1.0 - smoothstep(sunR * 0.94, sunR, sd);
+                    if (sunDisc > 0.0) {
+                        vec3 sunCol = mix(
+                            vec3(1.0, 0.80, 0.25),
+                            uAccentColor,
+                            smoothstep(sunCenter.y + sunR, sunCenter.y - sunR, p.y)
+                        );
+                        // Rayas horizontales bajo el centro: el hueco crece
+                        // hacia abajo y desciende despacio con el tiempo.
+                        float sy = sunCenter.y - p.y;
+                        if (sy > 0.0) {
+                            float band = fract(sy * 16.0 + uTime * 0.06);
+                            float cut = step(band, min(0.30 + sy * 1.2, 0.85));
+                            sunDisc *= (1.0 - cut);
+                        }
+                        col = mix(col, sunCol, sunDisc);
+                        // Halo del sol, más vivo con la velocidad.
+                        col += sunCol * exp(-sd * sd * 6.0) * (0.25 + 0.35 * energy);
+                    }
+
+                    // Montañas: dos crestas, la lejana con filo rosa y la cercana con filo cian.
+                    float mFar = horizon + ridge(p.x, 0.7, 2.0, 0.0);
+                    float inFar = step(p.y, mFar) * step(horizon - 0.02, p.y);
+                    if (inFar > 0.0) {
+                        col = mix(col, vec3(0.050, 0.020, 0.100), inFar);
+                        float rimFar = 1.0 - smoothstep(0.0, 0.015, abs(p.y - mFar));
+                        col += uAccentColor * rimFar * 0.7 * inFar;
+                    }
+                    float mNear = horizon + ridge(p.x, 2.9, 0.4, 1.7) * 1.35;
+                    float inNear = step(p.y, mNear) * step(horizon - 0.02, p.y);
+                    if (inNear > 0.0) {
+                        col = mix(col, vec3(0.030, 0.010, 0.070), inNear);
+                        float rimNear = 1.0 - smoothstep(0.0, 0.015, abs(p.y - mNear));
+                        col += uSecondaryColor * rimNear * 0.6 * inNear;
+                    }
+                }
+
                 // Piso con rejilla en perspectiva bajo el horizonte, como el mockup.
-                float horizon = -0.18;
                 if (p.y < horizon) {
                     float depth = horizon - p.y;
                     float z = 1.0 / (depth + 0.10);
                     float scroll = uTime * (0.25 + 2.4 * uSpeedFactor);
                     vec2 g = vec2(p.x * z, z + scroll);
                     vec2 grid = abs(fract(g) - 0.5);
-                    float line = 1.0 - smoothstep(0.0, 0.06, min(grid.x, grid.y));
                     float fade = smoothstep(0.0, 0.30, depth) * (1.0 - smoothstep(0.55, 1.15, depth));
-                    col += uAccentColor * line * fade * (0.35 + 0.45 * energy);
-                    col = mix(col, uAccentColor * 0.07, fade * 0.45);
+                    if (uVaporwave > 0.5) {
+                        // Rejilla bicolor: líneas verticales cian, horizontales rosa.
+                        float lineX = 1.0 - smoothstep(0.0, 0.06, grid.x);
+                        float lineY = 1.0 - smoothstep(0.0, 0.06, grid.y);
+                        col += uSecondaryColor * lineX * fade * (0.35 + 0.45 * energy);
+                        col += uAccentColor * lineY * fade * (0.35 + 0.45 * energy);
+                        col = mix(col, vec3(0.100, 0.020, 0.160), fade * 0.45);
+                    } else {
+                        float line = 1.0 - smoothstep(0.0, 0.06, min(grid.x, grid.y));
+                        col += uAccentColor * line * fade * (0.35 + 0.45 * energy);
+                        col = mix(col, uAccentColor * 0.07, fade * 0.45);
+                    }
                 }
 
                 fragColor = vec4(col, 1.0);
             }
+
         """
 
         private const val PBR_VERTEX_SHADER = """#version 300 es
