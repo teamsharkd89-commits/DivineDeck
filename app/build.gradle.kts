@@ -17,6 +17,24 @@ android {
     versionName = "1.0"
   }
 
+  signingConfigs {
+    // Firma debug persistente (Fase 06.11): si el entorno provee la ruta
+    // DIVINEDECK_DEBUG_KEYSTORE, el APK debug se firma con esa llave para
+    // que todos los APK debug tengan la misma firma y se instalen como
+    // actualización normal. Sin esa variable, AGP usa su debug keystore
+    // por defecto y cada máquina firma con una llave distinta (Android
+    // rechaza entonces la instalación por "conflicto con el paquete").
+    getByName("debug") {
+      val keystorePath = System.getenv("DIVINEDECK_DEBUG_KEYSTORE")
+      if (!keystorePath.isNullOrBlank()) {
+        storeFile = file(keystorePath)
+        storePassword = "android"
+        keyAlias = "androiddebugkey"
+        keyPassword = "android"
+      }
+    }
+  }
+
   buildTypes {
     release {
       isMinifyEnabled = false
