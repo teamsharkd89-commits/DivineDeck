@@ -83,6 +83,16 @@ object PhotonApi {
                 // en, fr"). Con el idioma por defecto devuelve los nombres
                 // locales en español en México. Verificado en vivo 2026-11-12.
                 parameter("countrycode", "mx")
+                // Bbox de Tepic (Obligatorio): sin él Photon devuelve
+                // resultados de todo México (Chihuahua, Guadalajara…)
+                // por encima de los de Tepic. Con bbox, "bodega aurrera"
+                // devuelve 5× Tepic y "parque puerta paraíso" [] (no
+                // existe en Tepic). Verificado en vivo 2026-11-12.
+                parameter(
+                    "bbox",
+                    "${OfflineNavConstants.MAP_WEST},${OfflineNavConstants.MAP_SOUTH}," +
+                        "${OfflineNavConstants.MAP_EAST},${OfflineNavConstants.MAP_NORTH}"
+                )
                 if (near != null) {
                     parameter("lat", near.latitude)
                     parameter("lon", near.longitude)

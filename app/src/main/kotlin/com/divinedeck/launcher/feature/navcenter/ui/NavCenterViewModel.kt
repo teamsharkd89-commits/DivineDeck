@@ -16,6 +16,7 @@ import com.divinedeck.launcher.feature.navcenter.data.OfflineMapPackManager
 import com.divinedeck.launcher.feature.navcenter.data.OfflineNavConstants
 import com.divinedeck.launcher.feature.navcenter.data.OfflinePackDownloader
 import com.divinedeck.launcher.feature.navcenter.data.OfflineSearchData
+import com.divinedeck.launcher.feature.navcenter.data.OfflineSearchMatcher
 import com.divinedeck.launcher.feature.navcenter.data.OfflineValhallaRouter
 import com.divinedeck.launcher.feature.navcenter.data.OverpassApi
 import com.divinedeck.launcher.feature.navcenter.data.PhotonApi
@@ -77,6 +78,10 @@ data class NavCenterUiState(
     val poiResults: List<NavPlace> = emptyList(),
     val activePoiKind: PoiKind? = null,
     val isLoadingPois: Boolean = false,
+    /** Nota persistente del chip de POIs ("No encontré…", "Mostrando
+     * guardadas…"): a diferencia de [statusMessage] no se auto-descarta
+     * a los pocos segundos. */
+    val poiMessage: String? = null,
     val isCalculatingRoute: Boolean = false,
     val routeError: String? = null,
     val isNavigating: Boolean = false,
@@ -101,6 +106,13 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
         private const val GOOGLE_TTS_PACKAGE = "com.google.android.tts"
         private const val SEARCH_DEBOUNCE_MS = 350L
         private const val TAP_SELECT_RADIUS_METERS = 80.0
+        /** Radio para tocar un marcador de POI: los círculos del mapa son
+         * pequeños en la tablet y el toque no siempre cae exacto. */
+        private const val POI_TAP_RADIUS_METERS = 120.0
+        /** Distancia bajo la que dos resultados con el mismo nombre se
+         * consideran el mismo lugar (fusión offline + online). */
+        private const val MERGE_SAME_PLACE_METERS = 100.0
+        private const val MERGED_RESULTS_LIMIT = 10
 
         /** Sin internet y fuera del grafo de Tepic: no hay ruta posible. */
         const val MSG_OFFLINE_OUT_OF_COVERAGE =
@@ -310,24 +322,28 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
             delay(SEARCH_DEBOUNCE_MS)
             _uiState.update { it.copy(isSearching = true, searchError = null) }
             val trimmed = query.trim()
+            // 1. Offline SIEMPRE primero: instantáneo y solo de Tepic.
+            // Antes, con internet, Photon (sin bbox) reemplazaba los
+            // resultados locales aunque devolviera Jalisco o Colima.
+            val loaded = offlineSearchData.load()
+            val offlineResults = if (loaded) {
+                offlineSearchData.search(trimmed, _uiState.value.currentLocation)
+            } else {
+                emptyList()
+            }
             if (!connectivityMonitor.isOnline.value) {
-                val loaded = offlineSearchData.load()
-                val results = if (loaded) {
-                    offlineSearchData.search(trimmed, _uiState.value.currentLocation)
-                } else {
-                    emptyList()
-                }
                 _uiState.update {
                     it.copy(
-                        searchResults = results,
+                        searchResults = offlineResults,
                         isSearching = false,
-                        searchError = if (results.isEmpty()) MSG_OFFLINE_SEARCH_EMPTY else null
+                        searchError = if (offlineResults.isEmpty()) MSG_OFFLINE_SEARCH_EMPTY else null
                     )
                 }
                 return@launch
             }
-            // Photon primero; si lanza (incluido su timeout de 8 s), un solo
-            // intento de respaldo con Nominatim (1 req/s, no autocompletado).
+            // 2. Online: Photon con bbox de Tepic; si lanza (incluido su
+            // timeout de 8 s), un solo intento de respaldo con Nominatim
+            // (1 req/s, no autocompletado; también con viewbox de Tepic).
             val photonResults: List<NavPlace>? = try {
                 withContext(Dispatchers.IO) {
                     PhotonApi.search(trimmed, _uiState.value.currentLocation)
@@ -336,27 +352,28 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
                 Log.w(TAG, "Búsqueda Photon falló: ${e.message}")
                 null
             }
-            if (photonResults != null) {
-                _uiState.update { it.copy(searchResults = photonResults, isSearching = false, searchError = null) }
-                return@launch
-            }
-            // "Colonia Centro, Tepic" da 0 resultados en Nominatim;
-            // "Centro Histórico, Tepic" sí da 1: quitar el prefijo.
-            val nominatimQuery = trimmed.removePrefix("Colonia ").trim()
-            val fallbackResults: List<NavPlace>? = try {
-                withContext(Dispatchers.IO) {
-                    NominatimApi.search(nominatimQuery, _uiState.value.currentLocation)
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Búsqueda Nominatim falló: ${e.message}")
-                null
-            }
-            // Respaldo con éxito (aunque devuelva 0 resultados) = "sin
-            // resultados" de verdad, sin error. Solo si Nominatim LANZA
-            // (null) el servicio falló y se muestra error + "Reintentar".
-            if (fallbackResults != null) {
-                _uiState.update { it.copy(searchResults = fallbackResults, isSearching = false, searchError = null) }
+            val onlineResults: List<NavPlace>? = if (photonResults != null) {
+                photonResults
             } else {
+                // "Colonia Centro, Tepic" da 0 resultados en Nominatim;
+                // "Centro Histórico, Tepic" sí da 1: quitar el prefijo.
+                val nominatimQuery = trimmed.removePrefix("Colonia ").trim()
+                try {
+                    withContext(Dispatchers.IO) {
+                        NominatimApi.search(nominatimQuery, _uiState.value.currentLocation)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Búsqueda Nominatim falló: ${e.message}")
+                    null
+                }
+            }
+            // 3. Fusión offline-primero: lo local arriba, lo online solo
+            // si no duplica un resultado local y está dentro del bbox de
+            // Tepic (un Tepic nunca debe mostrar Jalisco/Colima por
+            // encima de lo local). Si los dos servicios online fallan y
+            // tampoco hay nada local, error + "Reintentar" (fallo real).
+            // Si fallan pero hay resultados locales, se muestran sin error.
+            if (onlineResults == null && offlineResults.isEmpty()) {
                 _uiState.update {
                     it.copy(
                         searchResults = emptyList(),
@@ -364,8 +381,60 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
                         searchError = "No se pudo buscar: el servicio no responde. Revisa tu internet e inténtalo de nuevo."
                     )
                 }
+                return@launch
             }
+            val merged = mergePlaceLists(
+                primary = offlineResults,
+                secondary = onlineResults ?: emptyList(),
+                dropOutsideTepic = true
+            )
+            _uiState.update { it.copy(searchResults = merged, isSearching = false, searchError = null) }
         }
+    }
+
+    /**
+     * Fusión offline-primero: [primary] arriba tal cual; de [secondary]
+     * solo entran los que no duplican uno primario (mismo nombre
+     * normalizado y a menos de ~100 m) y, si [dropOutsideTepic], están
+     * dentro del bbox de Tepic.
+     */
+    private fun mergePlaceLists(
+        primary: List<NavPlace>,
+        secondary: List<NavPlace>,
+        dropOutsideTepic: Boolean = false,
+        limit: Int = MERGED_RESULTS_LIMIT
+    ): List<NavPlace> {
+        val merged = primary.toMutableList()
+        for (place in secondary) {
+            if (dropOutsideTepic && !OfflineNavConstants.isInsideMapBounds(
+                    place.latLng.latitude, place.latLng.longitude
+                )
+            ) {
+                continue
+            }
+            val key = placeNameKey(place)
+            val duplicate = merged.any { existing ->
+                placeNameKey(existing) == key &&
+                    distanceMeters(existing.latLng, place.latLng) < MERGE_SAME_PLACE_METERS
+            }
+            if (!duplicate) merged.add(place)
+        }
+        return merged.take(limit)
+    }
+
+    /**
+     * Clave de nombre para deduplicar: nombre normalizado sin acentos y
+     * sin palabras genéricas ni stop words, tokens ordenados. Así
+     * "Calle Camino Viejo a Jauja" (offline) y "Camino Viejo a Jauja"
+     * (Photon) son el mismo lugar.
+     */
+    private fun placeNameKey(place: NavPlace): String {
+        val tokens = OfflineSearchData.normalize(place.name)
+            .split(" ", "-", ".")
+            .filter { it.isNotBlank() }
+            .filter { it !in OfflineSearchMatcher.STOP_WORDS }
+            .filter { it !in OfflineSearchMatcher.GENERIC_WORDS }
+        return tokens.sorted().joinToString(" ")
     }
 
     /** Reintenta la búsqueda actual (botón "Reintentar" del estado vacío). */
@@ -388,12 +457,24 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
     // --- Selección de destino (toque en el mapa) ---
 
     fun onMapTap(point: NavLatLng) {
-        // Si tocó cerca de un POI o de un resultado visible, selecciónalo.
-        val nearby = (_uiState.value.poiResults + _uiState.value.searchResults)
+        // Tocar un marcador de POI lo selecciona y abre su hoja con
+        // Navegar: las capas de círculos no son tocables por sí mismas,
+        // así que el toque en el mapa se resuelve por cercanía. Los POIs
+        // van primero y con más radio (120 m) que los resultados de
+        // búsqueda (80 m): el círculo es pequeño en la tablet y el toque
+        // no siempre cae exacto.
+        val nearbyPoi = _uiState.value.poiResults
+            .minByOrNull { distanceMeters(it.latLng, point) }
+            ?.takeIf { distanceMeters(it.latLng, point) < POI_TAP_RADIUS_METERS }
+        if (nearbyPoi != null) {
+            selectPlace(nearbyPoi, moveCamera = false)
+            return
+        }
+        val nearbySearch = _uiState.value.searchResults
             .minByOrNull { distanceMeters(it.latLng, point) }
             ?.takeIf { distanceMeters(it.latLng, point) < TAP_SELECT_RADIUS_METERS }
-        if (nearby != null) {
-            selectPlace(nearby, moveCamera = false)
+        if (nearbySearch != null) {
+            selectPlace(nearbySearch, moveCamera = false)
             return
         }
         val place = NavPlace(
@@ -444,41 +525,70 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
     fun togglePois(kind: PoiKind) {
         val current = _uiState.value
         if (current.activePoiKind == kind) {
-            _uiState.update { it.copy(activePoiKind = null, poiResults = emptyList()) }
+            _uiState.update { it.copy(activePoiKind = null, poiResults = emptyList(), poiMessage = null) }
             return
         }
         viewModelScope.launch {
             _uiState.update {
-                it.copy(isLoadingPois = true, activePoiKind = kind, poiResults = emptyList())
+                it.copy(isLoadingPois = true, activePoiKind = kind, poiResults = emptyList(), poiMessage = null)
             }
             val center = current.currentLocation ?: TEPIC_CENTER
+            // 1. Offline SIEMPRE primero: instantáneo y local (52
+            // gasolineras y 19 talleres en el JSON). Se muestra en cuanto
+            // está, sin esperar a Overpass. Antes, con internet, solo se
+            // consultaba Overpass y si fallaba el mapa quedaba vacío.
+            offlineSearchData.load()
+            val offlineResults = offlineSearchData.nearbyPois(kind, center)
+            if (offlineResults.isNotEmpty()) {
+                _uiState.update { it.copy(poiResults = offlineResults) }
+            }
             if (!connectivityMonitor.isOnline.value) {
-                offlineSearchData.load()
-                val results = offlineSearchData.nearbyPois(kind, center)
                 _uiState.update {
                     it.copy(
-                        poiResults = results,
                         isLoadingPois = false,
-                        statusMessage = if (results.isEmpty()) MSG_OFFLINE_SEARCH_EMPTY else null
+                        poiMessage = if (offlineResults.isEmpty()) MSG_OFFLINE_SEARCH_EMPTY else null
                     )
                 }
                 return@launch
             }
-            val results = try {
+            // 2. Online: Overpass (nodos + vías) y fusión con lo local.
+            // Si Overpass falla o agota el timeout, se quedan los locales
+            // con una nota persistente en vez de un mapa vacío.
+            val overpassResults: List<NavPlace>? = try {
                 withContext(Dispatchers.IO) { OverpassApi.nearby(kind, center) }
             } catch (e: Exception) {
                 Log.w(TAG, "Overpass falló: ${e.message}")
-                emptyList()
+                null
             }
+            val poiLabel = if (kind == PoiKind.FUEL) "gasolineras" else "talleres"
+            if (overpassResults == null) {
+                _uiState.update {
+                    it.copy(
+                        isLoadingPois = false,
+                        poiMessage = if (offlineResults.isEmpty()) {
+                            "No encontré $poiLabel cerca"
+                        } else {
+                            "Mostrando $poiLabel guardadas: no se pudo actualizar con internet"
+                        }
+                    )
+                }
+                return@launch
+            }
+            // Unión offline + Overpass ordenada por distancia: el JSON
+            // trae las 30 más cercanas y Overpass otras 30; la unión
+            // (hasta 60) se reordena y se queda con las 30 más cercanas
+            // al centro. Sin reordenar, las de Overpass nunca entrarían
+            // cuando el JSON ya llena el cupo.
+            val merged = mergePlaceLists(
+                primary = offlineResults,
+                secondary = overpassResults,
+                limit = 60
+            ).sortedBy { distanceMeters(it.latLng, center) }.take(30)
             _uiState.update {
                 it.copy(
-                    poiResults = results,
+                    poiResults = merged,
                     isLoadingPois = false,
-                    statusMessage = if (results.isEmpty()) {
-                        "No encontré ${if (kind == PoiKind.FUEL) "gasolineras" else "talleres"} cerca"
-                    } else {
-                        null
-                    }
+                    poiMessage = if (merged.isEmpty()) "No encontré $poiLabel cerca" else null
                 )
             }
         }

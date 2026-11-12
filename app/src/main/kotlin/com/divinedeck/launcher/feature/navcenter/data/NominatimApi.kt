@@ -61,6 +61,16 @@ object NominatimApi {
             // del `lang=es` de Photon, que da HTTP 400): verificado en vivo
             // 2026-11-12, HTTP 200 con resultados en español. No tocar.
             parameter("accept-language", "es")
+            // Viewbox de Tepic + bounded=1: sin él Nominatim devuelve
+            // resultados de todo México. Formato viewbox: minLon,maxLat,
+            // maxLon,minLat. Verificado en vivo 2026-11-12 ("bodega
+            // aurrera" → 5× Tepic; "parque puerta paraíso" → []).
+            parameter(
+                "viewbox",
+                "${OfflineNavConstants.MAP_WEST},${OfflineNavConstants.MAP_NORTH}," +
+                    "${OfflineNavConstants.MAP_EAST},${OfflineNavConstants.MAP_SOUTH}"
+            )
+            parameter("bounded", 1)
             parameter("limit", limit)
             if (near != null) {
                 parameter("lat", near.latitude)

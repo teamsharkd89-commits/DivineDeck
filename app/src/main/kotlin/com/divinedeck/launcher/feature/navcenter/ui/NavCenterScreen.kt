@@ -280,13 +280,17 @@ fun NavCenterScreen(
                         radiusDp = 11f
                     )
                 }
-                // Gasolineras / talleres cercanos.
+                // Gasolineras / talleres cercanos. Radio 10 dp (antes 8):
+                // a zoom de ciudad los círculos de 8 dp casi no se veían.
+                // Color distinto por tipo: gasolinera = acento (ámbar),
+                // taller = verde de estado (el accentSecondary es un dorado
+                // casi igual al ámbar y no se distinguía). Borde blanco.
                 uiState.poiResults.forEach { poi ->
                     PlaceMarker(
                         layerId = "marker-poi-${poi.id}",
                         place = poi,
-                        color = if (poi.kind == PoiKind.FUEL) palette.accent else palette.accentSecondary,
-                        radiusDp = 8f
+                        color = if (poi.kind == PoiKind.FUEL) palette.accent else palette.statusPositive,
+                        radiusDp = 10f
                     )
                 }
                 // Resultados de búsqueda.
@@ -473,6 +477,20 @@ fun NavCenterScreen(
                         text = "${uiState.poiResults.size} ${if (uiState.activePoiKind == PoiKind.FUEL) "gasolineras" else "talleres"} cerca — toca una en el mapa",
                         style = MaterialTheme.typography.bodyMedium,
                         color = palette.textSecondary,
+                        modifier = Modifier
+                            .background(palette.surface.copy(alpha = 0.9f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
+                // Nota persistente del chip de POIs ("No encontré…",
+                // "Mostrando guardadas…"): no se auto-descarta como el
+                // mensaje de estado general, que desaparece a los 3.5 s.
+                if (uiState.activePoiKind != null && uiState.poiMessage != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = uiState.poiMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = palette.textPrimary,
                         modifier = Modifier
                             .background(palette.surface.copy(alpha = 0.9f), RoundedCornerShape(8.dp))
                             .padding(horizontal = 10.dp, vertical = 6.dp)

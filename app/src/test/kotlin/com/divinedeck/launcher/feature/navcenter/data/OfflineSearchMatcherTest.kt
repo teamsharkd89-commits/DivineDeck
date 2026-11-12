@@ -40,11 +40,20 @@ class OfflineSearchMatcherTest {
         entry("Andador Benito Juárez", lat = 21.5268901, lon = -104.8850162),
         entry("Avenida Allende", lat = 21.51, lon = -104.89),
         entry("Avenida Hidalgo", lat = 21.51, lon = -104.89),
-        entry("Centro", kind = "colonia", lat = 21.508, lon = -104.894),
+        entry("Centro", kind = "colonia", lat = 21.4496, lon = -104.8202),
         entry("Centro Histórico", kind = "colonia", lat = 21.509, lon = -104.893),
         entry("Colonia 2 de Agosto", kind = "colonia", lat = 21.52, lon = -104.88),
         entry("Colonia Bugambilias", kind = "colonia", lat = 21.52, lon = -104.88),
         entry("Ciudad del Valle", kind = "colonia", lat = 21.52, lon = -104.88),
+        // Colonias para probar el ancla de [OfflineSearchMatcher.findColonia]:
+        // "Centro" (este, otra localidad) contra "Centro Histórico"
+        // (centro de Tepic), y "Colonia Ejidal" contra "Crucero de
+        // Camichin" (el token "camichin" no debe anclar ahí). El "Centro"
+        // de arriba lleva las coordenadas reales del dataset (este).
+        entry("Colonia Ejidal", kind = "colonia", lat = 21.4460, lon = -104.8963),
+        entry("Ampliación Ejidal", kind = "colonia", lat = 21.4468, lon = -104.8955),
+        entry("Crucero de Camichin", kind = "colonia", lat = 21.4658, lon = -104.8009),
+        entry("Benito Juárez", kind = "colonia", lat = 21.4975, lon = -104.9078),
         entry("Plaza Fórum", kind = "poi", lat = 21.51, lon = -104.89),
         entry("Mercado Morelos", kind = "poi", lat = 21.51, lon = -104.89),
         entry("Hospital General", kind = "poi", lat = 21.51, lon = -104.89),
@@ -208,5 +217,81 @@ class OfflineSearchMatcherTest {
         assertEquals(1, OfflineSearchMatcher.levenshtein("juares", "juarez"))
         assertTrue(OfflineSearchMatcher.trigramSimilarity("caminando", "camina") >= 0.5)
         assertEquals(5, OfflineSearchMatcher.commonPrefixLength("caminando", "camino"))
+    }
+
+    // --- Número de casa y colonia (build 26) ---
+
+    @Test
+    fun `extractHouseNumber separa el numero de casa`() {
+        assertEquals(
+            "31",
+            OfflineSearchMatcher.extractHouseNumber(listOf("camichin", "jauja", "31", "ejidal"))
+        )
+        assertEquals(
+            "123",
+            OfflineSearchMatcher.extractHouseNumber(listOf("av", "juarez", "123"))
+        )
+        assertEquals(
+            "45b",
+            OfflineSearchMatcher.extractHouseNumber(listOf("calle", "45b"))
+        )
+        assertEquals(null, OfflineSearchMatcher.extractHouseNumber(listOf("av", "juarez")))
+        assertEquals(null, OfflineSearchMatcher.extractHouseNumber(emptyList()))
+    }
+
+    @Test
+    fun `findColonia ejidal ancla en Colonia Ejidal y no en Crucero de Camichin`() {
+        // La colonia va al final de la dirección: manda "ejidal", no el
+        // primer token "camichin" (que también nombra una colonia).
+        val match = OfflineSearchMatcher.findColonia(
+            listOf("camichin", "jauja", "ejidal"), dataset, near = 21.5 to -104.9
+        )
+        assertEquals("ejidal", match?.token)
+        assertEquals("Colonia Ejidal", match?.name)
+    }
+
+    @Test
+    fun `findColonia centro ancla en Centro Historico y no en el Centro de otra localidad`() {
+        // El "Centro" exacto del dataset está a 8 km al este (otra
+        // localidad); el "Centro Histórico" de Tepic está a ~1 km.
+        val match = OfflineSearchMatcher.findColonia(
+            listOf("calle", "juarez", "centro"), dataset, near = 21.5 to -104.9
+        )
+        assertEquals("centro", match?.token)
+        assertEquals("Centro Histórico", match?.name)
+    }
+
+    @Test
+    fun `findColonia no ancla en nombres parciales - paraiso y camichin`() {
+        // "paraiso" solo cubre la mitad de "Ampliación Paraíso" y
+        // "camichin" la mitad de "Crucero de Camichin": sin ancla, la
+        // búsqueda usa los tokens tal cual (y "parque puerta paraíso"
+        // sigue dando "Sin resultados").
+        assertEquals(
+            null,
+            OfflineSearchMatcher.findColonia(
+                listOf("parque", "puerta", "paraiso"), dataset, near = 21.5 to -104.9
+            )
+        )
+        assertEquals(
+            null,
+            OfflineSearchMatcher.findColonia(
+                listOf("camichin", "jauja"), dataset, near = 21.5 to -104.9
+            )
+        )
+    }
+
+    @Test
+    fun `searchTokens con tokens ya calculados encuentra Camichin de Jauja`() {
+        // "camichin de jauja 31 ejidal" sin número ni colonia: los dos
+        // tokens que importan, con el centroide de Ejidal como `near`.
+        val results = OfflineSearchMatcher.searchTokens(
+            dataset,
+            listOf("camichin", "jauja"),
+            near = 21.4460 to -104.8963,
+            limit = 8
+        )
+        assertTrue(results.isNotEmpty())
+        assertEquals("Calle Camichín de Jauja", results[0].name)
     }
 }
