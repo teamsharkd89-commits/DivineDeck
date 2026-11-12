@@ -97,13 +97,44 @@ fun VehicleShowcaseCard(
                 width = 1.dp,
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        palette.border.copy(alpha = 0.72f),
+                        palette.accent.copy(alpha = 0.55f),
                         palette.borderSubtle.copy(alpha = 0.25f)
                     )
                 ),
                 shape = RoundedCornerShape(24.dp)
             )
     ) {
+        // FONDO TEMÁTICO DETRÁS DEL MODELO 3D (Fase 06.11): brillo radial del
+        // color de acento del tema + reflejo en el piso, como en los mockups
+        // de temas. Va detrás del visor 3D (que es transparente) para que el
+        // Chevy se vea sobre el fondo del tema y no sobre negro plano.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            palette.accent.copy(alpha = 0.30f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(90.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            palette.accent.copy(alpha = 0.22f)
+                        )
+                    )
+                )
+        )
+
         // 1. ÁREA DE RENDERIZADO 3D AMPLIADA AL 100% DEL VISOR (Protagonismo absoluto del vehículo)
         ChevyStudioViewport(
             chevyRenderer = chevyRenderer,

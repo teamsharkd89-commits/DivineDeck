@@ -72,7 +72,7 @@ fun AutomotiveBottomDock(
                         width = 1.dp,
                         brush = Brush.verticalGradient(
                             colors = listOf(
-                                palette.border,
+                                palette.accent.copy(alpha = 0.35f),
                                 palette.borderSubtle
                             )
                         ),
@@ -110,7 +110,7 @@ fun AutomotiveBottomDock(
                     width = 1.dp,
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            palette.border,
+                            palette.accent.copy(alpha = 0.35f),
                             palette.borderSubtle
                         )
                     ),
@@ -142,8 +142,10 @@ private fun DockIconItem(
 ) {
     val palette = DivineDeckTheme.palette
 
+    // Iconos sin seleccionar en el color secundario del tema (en Rojo Sport
+    // son rojos claros, como en el mockup); el seleccionado usa el acento.
     val iconTint by animateColorAsState(
-        targetValue = if (isSelected) palette.accent else palette.textSecondary.copy(alpha = 0.72f),
+        targetValue = if (isSelected) palette.accent else palette.accentSecondary.copy(alpha = 0.85f),
         animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
         label = "DockIconTint"
     )

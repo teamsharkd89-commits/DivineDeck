@@ -87,7 +87,7 @@ fun SpeedGaugeCard(
             )
             .border(
                 width = 1.dp,
-                color = palette.border,
+                color = palette.accent.copy(alpha = 0.45f),
                 shape = RoundedCornerShape(22.dp)
             )
             .padding(14.dp)
@@ -104,7 +104,7 @@ fun SpeedGaugeCard(
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 1.4.sp
                 ),
-                color = palette.textSecondary
+                color = palette.accent
             )
 
             // Dial analógico con lectura digital centrada
@@ -129,9 +129,10 @@ fun SpeedGaugeCard(
                         )
                     }
 
-                    // Arco de fondo (240°)
+                    // Arco de fondo (240°) teñido con el acento del tema,
+                    // como el dial rojo del mockup Rojo Sport
                     drawArc(
-                        color = palette.borderSubtle,
+                        color = palette.accent.copy(alpha = 0.22f),
                         startAngle = GAUGE_START_ANGLE,
                         sweepAngle = GAUGE_SWEEP_ANGLE,
                         useCenter = false,
@@ -153,11 +154,11 @@ fun SpeedGaugeCard(
                         )
                     }
 
-                    // Marcas cada 20 km/h (0–180)
+                    // Marcas cada 20 km/h (0–180) en acento del tema
                     for (i in 0..9) {
                         val angle = GAUGE_START_ANGLE + i * (GAUGE_SWEEP_ANGLE / 9f)
                         drawLine(
-                            color = palette.textMuted,
+                            color = palette.accent.copy(alpha = 0.55f),
                             start = polar(angle.toDouble(), radius * 0.86f),
                             end = polar(angle.toDouble(), radius * 0.97f),
                             strokeWidth = 2.dp.toPx(),
@@ -197,7 +198,7 @@ fun SpeedGaugeCard(
                                 fontWeight = FontWeight.Light,
                                 letterSpacing = (-1.5).sp
                             ),
-                            color = palette.textPrimary
+                            color = palette.accent
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
@@ -240,7 +241,7 @@ fun SpeedGaugeCard(
                         fontWeight = FontWeight.Medium,
                         letterSpacing = 1.2.sp
                     ),
-                    color = palette.textSecondary
+                    color = palette.accent
                 )
             }
         }

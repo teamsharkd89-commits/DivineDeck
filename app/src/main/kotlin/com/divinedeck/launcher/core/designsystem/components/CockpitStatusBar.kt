@@ -110,7 +110,7 @@ fun CockpitStatusBar(
                         fontSize = 15.sp,
                         letterSpacing = 0.8.sp
                     ),
-                    color = palette.textPrimary
+                    color = palette.accent
                 )
 
                 Box(
@@ -146,7 +146,7 @@ fun CockpitStatusBar(
                     GpsStatus.WEAK_SIGNAL -> palette.accentSecondary
                     GpsStatus.SEARCHING -> palette.accent
                     GpsStatus.UNRELIABLE_SPEED -> palette.statusAlert
-                    GpsStatus.NOT_AVAILABLE -> palette.textMuted
+                    GpsStatus.NOT_AVAILABLE -> palette.accent
                 }
 
                 Row(
@@ -195,13 +195,13 @@ fun CockpitStatusBar(
                     Icon(
                         imageVector = Icons.Default.Wifi,
                         contentDescription = "Estado Wi-Fi",
-                        tint = palette.textSecondary,
+                        tint = palette.accent,
                         modifier = Modifier.size(14.dp)
                     )
                     Icon(
                         imageVector = Icons.Default.Bluetooth,
                         contentDescription = "Estado Bluetooth",
-                        tint = palette.textSecondary,
+                        tint = palette.accent,
                         modifier = Modifier.size(14.dp)
                     )
                 }
@@ -215,7 +215,7 @@ fun CockpitStatusBar(
                         Icon(
                             imageVector = Icons.Default.BatteryFull,
                             contentDescription = "Batería",
-                            tint = palette.textSecondary,
+                            tint = palette.accent,
                             modifier = Modifier.size(14.dp)
                         )
                         Text(
@@ -224,7 +224,7 @@ fun CockpitStatusBar(
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Medium
                             ),
-                            color = palette.textSecondary
+                            color = palette.accent
                         )
                     }
                 }
@@ -234,7 +234,7 @@ fun CockpitStatusBar(
                     modifier = Modifier
                         .clip(RoundedCornerShape(10.dp))
                         .background(palette.surface)
-                        .border(0.8.dp, palette.borderSubtle, RoundedCornerShape(10.dp))
+                        .border(0.8.dp, palette.accent.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
                         .clickable { onToggleMode() }
                         .padding(horizontal = 8.dp, vertical = 3.dp)
                 ) {
@@ -254,7 +254,7 @@ fun CockpitStatusBar(
                                 fontWeight = FontWeight.SemiBold,
                                 letterSpacing = 0.6.sp
                             ),
-                            color = palette.textSecondary
+                            color = palette.accent
                         )
                     }
                 }

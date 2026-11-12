@@ -237,7 +237,7 @@ fun ConfigurableWidgetSlotCard(
             )
             .border(
                 width = 1.dp,
-                color = if (slot.isEmpty) palette.borderSubtle else palette.border,
+                color = if (slot.isEmpty) palette.borderSubtle else palette.accent.copy(alpha = 0.45f),
                 shape = RoundedCornerShape(22.dp)
             )
             .clickable { onConfigureClick() }
@@ -272,7 +272,7 @@ fun ConfigurableWidgetSlotCard(
                             fontWeight = FontWeight.SemiBold,
                             letterSpacing = 1.4.sp
                         ),
-                        color = palette.textSecondary
+                        color = palette.accent
                     )
                 }
 
@@ -296,7 +296,7 @@ fun ConfigurableWidgetSlotCard(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(palette.elevatedSurface)
-                                .border(0.8.dp, palette.border, RoundedCornerShape(8.dp))
+                                .border(0.8.dp, palette.accent.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
                                 .clickable { onConfigureClick() }
                                 .padding(horizontal = 7.dp, vertical = 3.dp)
                         ) {
@@ -316,7 +316,7 @@ fun ConfigurableWidgetSlotCard(
                                         fontSize = 8.sp,
                                         fontWeight = FontWeight.SemiBold
                                     ),
-                                    color = palette.textPrimary
+                                    color = palette.accent
                                 )
                             }
                         }
@@ -428,7 +428,7 @@ fun ConfigurableWidgetSlotCard(
                             fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold
                         ),
-                        color = palette.textPrimary
+                        color = palette.accent
                     )
 
                     Spacer(modifier = Modifier.height(2.dp))
