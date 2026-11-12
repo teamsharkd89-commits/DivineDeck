@@ -136,4 +136,16 @@ dependencies {
   implementation(libs.ktor.client.content.negotiation)
   implementation(libs.ktor.serialization.kotlinx.json)
   implementation(libs.kotlinx.serialization.json)
+
+  // Navegación embebida (Ferrostar 0.59.0 + MapLibre Compose 0.13.0):
+  // mapa OpenFreeMap, rutas Valhalla (servidor gratuito FOSSGIS), búsqueda
+  // Photon — todo gratis, sin llaves. Ferrostar usa MapLibre Compose (no el
+  // SDK clásico de MapLibre): el mapa lo dibuja
+  // DynamicallyOrientingNavigationView, no un MapView clásico.
+  implementation(platform(libs.okhttp.bom))
+  implementation(libs.ferrostar.core)
+  implementation(libs.ferrostar.ui.compose)
+  implementation(libs.ferrostar.ui.maplibre)
+  implementation(libs.ferrostar.google.play.services)
+  implementation(libs.maplibre.compose)
 }
