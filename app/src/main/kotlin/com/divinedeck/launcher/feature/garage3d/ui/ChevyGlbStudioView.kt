@@ -1119,10 +1119,14 @@ private class ChevyGlbOpenGLRenderer(
             void main() {
                 vec2 carBox = abs(vPos.xz) / vec2(0.76, 1.84);
                 float boxDist = length(max(carBox - vec2(0.62, 0.72), 0.0));
-                float chassisShadow = (1.0 - uHideShadow) * (1.0 - smoothstep(0.0, 0.48, boxDist));
+                // uHideShadow = 1 (tema Rojo Sport): sin sombra del chasis Y sin
+                // disco oscuro de la plataforma; solo quedan el anillo de acento
+                // y el underglow neón, y la rejilla del fondo se ve continua.
+                float shadowFactor = 1.0 - uHideShadow;
+                float chassisShadow = shadowFactor * (1.0 - smoothstep(0.0, 0.48, boxDist));
 
                 float r = length(vPos.xz / vec2(1.42, 2.22));
-                float platform = 1.0 - smoothstep(0.75, 1.0, r);
+                float platform = shadowFactor * (1.0 - smoothstep(0.75, 1.0, r));
                 float ring = exp(-abs(r - 0.86) * 28.0);
 
                 vec3 floorCol = mix(vec3(0.02, 0.03, 0.05), uAccentColor * 0.42, ring * 0.62);
