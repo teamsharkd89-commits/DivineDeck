@@ -102,6 +102,7 @@ class MainActivity : ComponentActivity() {
 
             val selectedTheme by settingsRepository.selectedTheme.collectAsState()
             val customAccentHex by settingsRepository.customAccentHex.collectAsState()
+            val cockpitLayout by settingsRepository.cockpitLayout.collectAsState()
             val operatingMode by settingsRepository.operatingMode.collectAsState()
 
             val speedReading by gpsRepository.speedReading.collectAsState()
@@ -257,7 +258,8 @@ class MainActivity : ComponentActivity() {
                                                 }
                                                 currentRoute = destination
                                             },
-                                            onGpsStatusClick = requestLocationPermissionOrSettings
+                                            onGpsStatusClick = requestLocationPermissionOrSettings,
+                                            layout = cockpitLayout
                                         )
                                         DivineDeckRoute.MUSIC -> {
                                             // Conmutado por AnimatedContent superior en modo inmersivo

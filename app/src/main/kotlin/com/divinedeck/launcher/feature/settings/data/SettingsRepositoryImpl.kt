@@ -2,6 +2,7 @@ package com.divinedeck.launcher.feature.settings.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.divinedeck.launcher.core.designsystem.theme.CockpitLayout
 import com.divinedeck.launcher.core.designsystem.theme.ThemePreset
 import com.divinedeck.launcher.feature.settings.domain.SettingsRepository
 import com.divinedeck.launcher.feature.settings.model.OperatingMode
@@ -47,6 +48,11 @@ class SettingsRepositoryImpl(
     )
     override val customAccentHex: StateFlow<Long> = _customAccentHex.asStateFlow()
 
+    private val _cockpitLayout = MutableStateFlow(
+        CockpitLayout.fromId(prefs?.getString(KEY_COCKPIT_LAYOUT, CockpitLayout.DEFAULT.id))
+    )
+    override val cockpitLayout: StateFlow<CockpitLayout> = _cockpitLayout.asStateFlow()
+
     override fun setOperatingMode(mode: OperatingMode) {
         _operatingMode.value = mode
         prefs?.edit()?.putString(KEY_OPERATING_MODE, mode.name)?.apply()
@@ -72,6 +78,11 @@ class SettingsRepositoryImpl(
         prefs?.edit()?.putLong(KEY_CUSTOM_ACCENT_HEX, hex)?.apply()
     }
 
+    override fun setCockpitLayout(layout: CockpitLayout) {
+        _cockpitLayout.value = layout
+        prefs?.edit()?.putString(KEY_COCKPIT_LAYOUT, layout.id)?.apply()
+    }
+
     companion object {
         const val PREFS_NAME = "divine_deck_settings_prefs"
         const val KEY_OPERATING_MODE = "key_operating_mode"
@@ -79,6 +90,7 @@ class SettingsRepositoryImpl(
         const val KEY_AUTO_NIGHT_MODE = "key_auto_night_mode"
         const val KEY_THEME_PRESET = "key_theme_preset"
         const val KEY_CUSTOM_ACCENT_HEX = "key_custom_accent_hex"
+        const val KEY_COCKPIT_LAYOUT = "key_cockpit_layout"
         const val DEFAULT_CUSTOM_ACCENT_HEX = 0xFFFFB547L
     }
 }

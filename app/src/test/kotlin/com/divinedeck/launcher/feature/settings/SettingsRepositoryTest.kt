@@ -1,5 +1,6 @@
 package com.divinedeck.launcher.feature.settings
 
+import com.divinedeck.launcher.core.designsystem.theme.CockpitLayout
 import com.divinedeck.launcher.core.designsystem.theme.ThemePreset
 import com.divinedeck.launcher.feature.settings.data.SettingsRepositoryImpl
 import com.divinedeck.launcher.feature.settings.model.OperatingMode
@@ -17,6 +18,7 @@ class SettingsRepositoryTest {
         assertTrue(repo.isAutoNightModeEnabled.value)
         assertEquals(ThemePreset.MINIMALISTA, repo.selectedTheme.value)
         assertEquals(SettingsRepositoryImpl.DEFAULT_CUSTOM_ACCENT_HEX, repo.customAccentHex.value)
+        assertEquals(CockpitLayout.ORIGINAL, repo.cockpitLayout.value)
     }
 
     @Test
@@ -47,5 +49,21 @@ class SettingsRepositoryTest {
         val repo = SettingsRepositoryImpl()
         repo.setCustomAccentHex(0xFF22D3EE)
         assertEquals(0xFF22D3EE, repo.customAccentHex.value)
+    }
+
+    @Test
+    fun `selecting cockpit layouts updates cockpitLayout state flow across all layouts`() {
+        val repo = SettingsRepositoryImpl()
+        CockpitLayout.entries.forEach { layout ->
+            repo.setCockpitLayout(layout)
+            assertEquals(layout, repo.cockpitLayout.value)
+        }
+    }
+
+    @Test
+    fun `unknown cockpit layout id falls back to original`() {
+        assertEquals(CockpitLayout.ORIGINAL, CockpitLayout.fromId("NO_EXISTE"))
+        assertEquals(CockpitLayout.ORIGINAL, CockpitLayout.fromId(null))
+        assertEquals(CockpitLayout.DEFAULT, CockpitLayout.ORIGINAL)
     }
 }

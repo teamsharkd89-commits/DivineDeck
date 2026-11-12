@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import com.divinedeck.launcher.core.designsystem.components.AutomotiveCard
 import com.divinedeck.launcher.core.designsystem.components.AutomotivePrimaryButton
 import com.divinedeck.launcher.core.designsystem.components.AutomotiveSecondaryButton
+import com.divinedeck.launcher.core.designsystem.theme.CockpitLayout
 import com.divinedeck.launcher.core.designsystem.theme.CuratedCustomAccents
 import com.divinedeck.launcher.core.designsystem.theme.DivineDeckTheme
 import com.divinedeck.launcher.core.designsystem.theme.ThemePreset
@@ -69,6 +71,7 @@ fun SettingsScreen(
     val autoNightMode by settingsRepository.isAutoNightModeEnabled.collectAsState()
     val selectedTheme by settingsRepository.selectedTheme.collectAsState()
     val customAccentHex by settingsRepository.customAccentHex.collectAsState()
+    val cockpitLayout by settingsRepository.cockpitLayout.collectAsState()
 
     Row(
         modifier = modifier
@@ -199,6 +202,91 @@ fun SettingsScreen(
                                     Icon(
                                         imageVector = Icons.Default.Check,
                                         contentDescription = "Tema activo",
+                                        tint = palette.onAccent,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Apartado Distribución del Cockpit (Fase 06.11): Original vs Panorámica.
+                // Solo cambia la distribución y el orden de los elementos; nunca elimina funciones.
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Dashboard,
+                            contentDescription = null,
+                            tint = palette.accent,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "DISTRIBUCIÓN",
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    letterSpacing = 0.8.sp
+                                ),
+                                color = palette.textPrimary
+                            )
+                            Text(
+                                text = "Elige cómo se ordenan el vehículo, el velocímetro y los widgets en la pantalla principal. Se aplica al instante y se guarda.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = palette.textSecondary
+                            )
+                        }
+                    }
+
+                    CockpitLayout.entries.forEach { layout ->
+                        val isSelected = cockpitLayout == layout
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(
+                                    if (isSelected) palette.elevatedSurface else palette.background.copy(alpha = 0.6f)
+                                )
+                                .border(
+                                    width = if (isSelected) 1.5.dp else 1.dp,
+                                    color = if (isSelected) palette.accent else palette.borderSubtle,
+                                    shape = RoundedCornerShape(14.dp)
+                                )
+                                .clickable { settingsRepository.setCockpitLayout(layout) }
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = layout.displayName.uppercase(),
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 1.sp
+                                    ),
+                                    color = if (isSelected) palette.accent else palette.textPrimary
+                                )
+                                Text(
+                                    text = layout.description,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.sp),
+                                    color = palette.textSecondary
+                                )
+                            }
+
+                            if (isSelected) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .clip(CircleShape)
+                                        .background(palette.accent),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Distribución activa",
                                         tint = palette.onAccent,
                                         modifier = Modifier.size(14.dp)
                                     )

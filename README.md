@@ -31,6 +31,18 @@ restauran al iniciar. Tema por defecto: **Minimalista**.
 
 El layout Panorámico es el mismo en todos los temas; solo cambia la paleta.
 
+## Distribución del Cockpit (Fase 06.11)
+
+2 distribuciones seleccionables en **Ajustes > Distribución**, se guardan y
+se restauran al iniciar. Distribución por defecto: **Original**.
+
+| Distribución | Descripción |
+|---|---|
+| Original | Vehículo a la izquierda con el velocímetro digital dentro de su tarjeta; dos widgets apilados a la derecha. |
+| Panorámica | Vehículo como pancarta ancha arriba; abajo, velocímetro analógico, widget superior y widget inferior en tres tarjetas. |
+
+Solo cambia la distribución y el orden; ninguna función se elimina ni se duplica.
+
 ## Compilar
 
 Android Studio, JDK 17, compileSdk 37, minSdk 26, targetSdk 35.

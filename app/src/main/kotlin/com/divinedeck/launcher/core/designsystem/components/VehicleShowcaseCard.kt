@@ -65,7 +65,13 @@ fun VehicleShowcaseCard(
     onGpsStatusClick: (() -> Unit)? = null,
     onOpenGarage3D: () -> Unit,
     modifier: Modifier = Modifier,
-    chevyRenderer: Chevy3DRenderer = remember { Chevy3DContractImpl() }
+    chevyRenderer: Chevy3DRenderer = remember { Chevy3DContractImpl() },
+    /**
+     * Oculta el indicador digital de velocidad de la base del visor.
+     * El layout Panorámica lo pone en false porque la velocidad vive en
+     * su propia tarjeta analógica ([SpeedGaugeCard]).
+     */
+    showSpeedIndicator: Boolean = true
 ) {
     val palette = DivineDeckTheme.palette
     val chevyState by chevyRenderer.modelState.collectAsState()
@@ -217,16 +223,19 @@ fun VehicleShowcaseCard(
         }
 
         // 3. INDICADOR DIGITAL DE VELOCIDAD CENTRADO EN LA PARTE INFERIOR
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 8.dp)
-        ) {
-            DigitalSpeedIndicator(
-                speedKmh = if (gpsStatus == GpsStatus.CONNECTED || gpsStatus == GpsStatus.WEAK_SIGNAL) currentSpeedKmh else 0f,
-                gpsStatus = gpsStatus,
-                onStatusClick = onGpsStatusClick
-            )
+        // (oculto en el layout Panorámica: la velocidad vive en SpeedGaugeCard)
+        if (showSpeedIndicator) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 8.dp)
+            ) {
+                DigitalSpeedIndicator(
+                    speedKmh = if (gpsStatus == GpsStatus.CONNECTED || gpsStatus == GpsStatus.WEAK_SIGNAL) currentSpeedKmh else 0f,
+                    gpsStatus = gpsStatus,
+                    onStatusClick = onGpsStatusClick
+                )
+            }
         }
 
         // 4. SELECTOR TEMPORAL DE DEPURACIÓN (Exclusivo en compilaciones DEBUG - Fase 4.1B)

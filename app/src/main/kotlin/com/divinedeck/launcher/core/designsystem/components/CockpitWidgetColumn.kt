@@ -72,7 +72,12 @@ fun CockpitWidgetColumn(
     mediaRepository: MediaControllerRepository? = null,
     onOpenMusicPlayer: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
-    onNavigateToWidgets: (() -> Unit)? = null
+    onNavigateToWidgets: (() -> Unit)? = null,
+    /**
+     * True para el layout Panorámica: los dos espacios se colocan en fila
+     * (uno al lado del otro) en vez de apilados en columna.
+     */
+    horizontal: Boolean = false
 ) {
     val configuredSlots by widgetManager.configuredSlots.collectAsState()
     var activePickerSlot by remember { mutableStateOf<WidgetSlot?>(null) }
@@ -88,48 +93,62 @@ fun CockpitWidgetColumn(
         }
     }
 
-    Column(
-        modifier = modifier.fillMaxHeight(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // ESPACIO 1: WIDGET SUPERIOR -> BitChord Mini Player si no hay AppWidget Android externo vinculado
-        val showMiniPlayer = mediaRepository != null && (
-            topSlot.assignedCandidate == WidgetCandidateType.BITCHORD_MUSIC ||
-            topSlot.isEmpty ||
-            (!topSlot.isBound && topSlot.assignedCandidate != WidgetCandidateType.NONE)
-        )
-
-        if (showMiniPlayer) {
-            CockpitBitChordMiniPlayer(
+    if (horizontal) {
+        Row(
+            modifier = modifier.fillMaxHeight(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            CockpitWidgetSlotContent(
+                slot = topSlot,
+                isTopSlot = true,
+                widgetManager = widgetManager,
                 mediaRepository = mediaRepository,
-                onClick = { onOpenMusicPlayer?.invoke() },
-                onConfigure = { onSlotConfigure(topSlot) },
+                onOpenMusicPlayer = onOpenMusicPlayer,
+                onSlotConfigure = onSlotConfigure,
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .weight(1f)
+            )
+            CockpitWidgetSlotContent(
+                slot = bottomSlot,
+                isTopSlot = false,
+                widgetManager = widgetManager,
+                mediaRepository = mediaRepository,
+                onOpenMusicPlayer = onOpenMusicPlayer,
+                onSlotConfigure = onSlotConfigure,
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .weight(1f)
+            )
+        }
+    } else {
+        Column(
+            modifier = modifier.fillMaxHeight(),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            CockpitWidgetSlotContent(
+                slot = topSlot,
+                isTopSlot = true,
+                widgetManager = widgetManager,
+                mediaRepository = mediaRepository,
+                onOpenMusicPlayer = onOpenMusicPlayer,
+                onSlotConfigure = onSlotConfigure,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
             )
-        } else {
-            NativeWidgetHostContainer(
-                slot = topSlot,
+            CockpitWidgetSlotContent(
+                slot = bottomSlot,
+                isTopSlot = false,
                 widgetManager = widgetManager,
-                onConfigureClick = { onSlotConfigure(topSlot) },
-                onClearClick = { widgetManager.clearSlot(topSlot.slotId) },
+                mediaRepository = mediaRepository,
+                onOpenMusicPlayer = onOpenMusicPlayer,
+                onSlotConfigure = onSlotConfigure,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
             )
         }
-
-        // ESPACIO 2: WIDGET INFERIOR -> Conserva Fuel Sense o widget asignado
-        NativeWidgetHostContainer(
-            slot = bottomSlot,
-            widgetManager = widgetManager,
-            onConfigureClick = { onSlotConfigure(bottomSlot) },
-            onClearClick = { widgetManager.clearSlot(bottomSlot.slotId) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        )
     }
 
     // Selector modal de widgets para el espacio seleccionado (fallback si no hay navegación directa)
@@ -141,6 +160,57 @@ fun CockpitWidgetColumn(
                 widgetManager.assignCandidateToSlot(targetSlot.slotId, candidate)
                 activePickerSlot = null
             }
+        )
+    }
+}
+
+/**
+ * Contenido de un espacio de widget del Cockpit (compartido por la columna
+ * vertical del layout Original y la fila horizontal del layout Panorámica).
+ * - ESPACIO SUPERIOR: Mini reproductor BitChord si no hay AppWidget Android
+ *   externo vinculado; si no, el AppWidget asignado.
+ * - ESPACIO INFERIOR: Fuel Sense o el AppWidget Android asignado.
+ */
+@Composable
+private fun CockpitWidgetSlotContent(
+    slot: WidgetSlot,
+    isTopSlot: Boolean,
+    widgetManager: AndroidWidgetHostManager,
+    mediaRepository: MediaControllerRepository?,
+    onOpenMusicPlayer: (() -> Unit)?,
+    onSlotConfigure: (WidgetSlot) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (isTopSlot) {
+        val showMiniPlayer = mediaRepository != null && (
+            slot.assignedCandidate == WidgetCandidateType.BITCHORD_MUSIC ||
+            slot.isEmpty ||
+            (!slot.isBound && slot.assignedCandidate != WidgetCandidateType.NONE)
+        )
+
+        if (showMiniPlayer) {
+            CockpitBitChordMiniPlayer(
+                mediaRepository = mediaRepository,
+                onClick = { onOpenMusicPlayer?.invoke() },
+                onConfigure = { onSlotConfigure(slot) },
+                modifier = modifier
+            )
+        } else {
+            NativeWidgetHostContainer(
+                slot = slot,
+                widgetManager = widgetManager,
+                onConfigureClick = { onSlotConfigure(slot) },
+                onClearClick = { widgetManager.clearSlot(slot.slotId) },
+                modifier = modifier
+            )
+        }
+    } else {
+        NativeWidgetHostContainer(
+            slot = slot,
+            widgetManager = widgetManager,
+            onConfigureClick = { onSlotConfigure(slot) },
+            onClearClick = { widgetManager.clearSlot(slot.slotId) },
+            modifier = modifier
         )
     }
 }
