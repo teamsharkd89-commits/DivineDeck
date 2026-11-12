@@ -485,10 +485,11 @@ fun NavCenterScreen(
                 // Nota persistente del chip de POIs ("No encontré…",
                 // "Mostrando guardadas…"): no se auto-descarta como el
                 // mensaje de estado general, que desaparece a los 3.5 s.
-                if (uiState.activePoiKind != null && uiState.poiMessage != null) {
+                val poiMessage = uiState.poiMessage
+                if (uiState.activePoiKind != null && poiMessage != null) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = uiState.poiMessage,
+                        text = poiMessage,
                         style = MaterialTheme.typography.bodyMedium,
                         color = palette.textPrimary,
                         modifier = Modifier
