@@ -132,31 +132,31 @@ fun NavCenterScreen(
     val navViews = remember(palette) {
         val instructionTheme = object : InstructionRowTheme {
             override val distanceTextStyle: TextStyle
-                @get:Composable get() = DefaultInstructionRowTheme.distanceTextStyle.copy(color = palette.accent)
+                @Composable get() = DefaultInstructionRowTheme.distanceTextStyle.copy(color = palette.accent)
             override val instructionTextStyle: TextStyle
-                @get:Composable get() = DefaultInstructionRowTheme.instructionTextStyle.copy(color = palette.textPrimary)
+                @Composable get() = DefaultInstructionRowTheme.instructionTextStyle.copy(color = palette.textPrimary)
             override val iconTintColor: Color
-                @get:Composable get() = palette.accent
+                @Composable get() = palette.accent
             override val backgroundColor: Color
-                @get:Composable get() = palette.elevatedSurface
+                @Composable get() = palette.elevatedSurface
         }
         val progressTheme = object : TripProgressViewTheme {
             override val style: TripProgressViewStyle
-                @get:Composable get() = TripProgressViewStyle.SIMPLIFIED
+                @Composable get() = TripProgressViewStyle.SIMPLIFIED
             override val measurementTextStyle: TextStyle
-                @get:Composable get() = DefaultTripProgressViewTheme.measurementTextStyle.copy(color = palette.textPrimary)
+                @Composable get() = DefaultTripProgressViewTheme.measurementTextStyle.copy(color = palette.textPrimary)
             override val secondaryTextStyle: TextStyle
-                @get:Composable get() = DefaultTripProgressViewTheme.secondaryTextStyle.copy(color = palette.textSecondary)
+                @Composable get() = DefaultTripProgressViewTheme.secondaryTextStyle.copy(color = palette.textSecondary)
             // Botón de salida con fondo de acento: el icono va en onAccent
             // para seguir siendo legible (icono en acento sobre acento no
             // se vería). El botón de silencio lo dibuja Ferrostar con los
             // colores del tema Material de DivineDeck.
             override val exitIconColor: Color
-                @get:Composable get() = palette.onAccent
+                @Composable get() = palette.onAccent
             override val exitButtonBackgroundColor: Color
-                @get:Composable get() = palette.accent
+                @Composable get() = palette.accent
             override val backgroundColor: Color
-                @get:Composable get() = palette.surface
+                @Composable get() = palette.surface
         }
         NavigationViewComponentBuilder.Default()
             .withInstructionsView { viewModifier, navUiState ->
