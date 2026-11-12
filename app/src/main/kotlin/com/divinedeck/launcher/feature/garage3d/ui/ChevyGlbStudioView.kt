@@ -25,6 +25,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.divinedeck.launcher.core.designsystem.theme.DivineDeckTheme
+import com.divinedeck.launcher.core.designsystem.theme.ThemePreset
 import com.divinedeck.launcher.feature.garage3d.data.glb.GlbMaterial
 import com.divinedeck.launcher.feature.garage3d.data.glb.GlbModelData
 import com.divinedeck.launcher.feature.garage3d.data.glb.GlbModelLoader
@@ -89,7 +90,8 @@ fun ChevyGlbStudioView(
         state.isGpsReliable,
         state.debugVisualModeOverride,
         palette.background,
-        palette.accent
+        palette.accent,
+        palette.preset
     ) {
         glRenderer.updateSceneState(
             yaw = state.rotationYaw,
@@ -101,7 +103,8 @@ fun ChevyGlbStudioView(
             isGpsReliable = effectiveReliable,
             debugModeOverride = state.debugVisualModeOverride,
             bgColor = palette.background,
-            accentColor = palette.accent
+            accentColor = palette.accent,
+            hideFloorShadow = palette.preset == ThemePreset.ROJO_SPORT
         )
     }
 
@@ -227,6 +230,7 @@ private class ChevyGlbOpenGLRenderer(
     @Volatile private var accR: Float = 1.0f
     @Volatile private var accG: Float = 0.71f
     @Volatile private var accB: Float = 0.28f
+    @Volatile private var hideFloorShadow: Boolean = false
     @Volatile private var targetSpeedKmh: Float = 0f
     @Volatile private var targetGpsReliable: Boolean = false
     @Volatile private var targetDebugModeOverride: SpeedVisualMode? = null
@@ -280,6 +284,7 @@ private class ChevyGlbOpenGLRenderer(
     private var uFloorUnderglowColor = -1
     private var uFloorUnderglowIntensity = -1
     private var uFloorTime = -1
+    private var uFloorHideShadow = -1
 
     // Ubicaciones en caché de uniformes Partículas y Estelas
     private var uParticleMvp = -1
@@ -312,7 +317,8 @@ private class ChevyGlbOpenGLRenderer(
         isGpsReliable: Boolean = false,
         debugModeOverride: SpeedVisualMode? = null,
         bgColor: Color,
-        accentColor: Color
+        accentColor: Color,
+        hideFloorShadow: Boolean = false
     ) {
         if (!autoRotate && isAutoRotating) {
             // Conserva la orientación visual actual al detener la rotación automática para evitar saltos
@@ -332,6 +338,7 @@ private class ChevyGlbOpenGLRenderer(
         accR = accentColor.red
         accG = accentColor.green
         accB = accentColor.blue
+        this.hideFloorShadow = hideFloorShadow
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -370,6 +377,7 @@ private class ChevyGlbOpenGLRenderer(
         uFloorUnderglowColor = GLES30.glGetUniformLocation(floorProgram, "uUnderglowColor")
         uFloorUnderglowIntensity = GLES30.glGetUniformLocation(floorProgram, "uUnderglowIntensity")
         uFloorTime = GLES30.glGetUniformLocation(floorProgram, "uTime")
+        uFloorHideShadow = GLES30.glGetUniformLocation(floorProgram, "uHideShadow")
 
         // Registrar uniformes Partículas y Estelas
         uParticleMvp = GLES30.glGetUniformLocation(particleProgram, "uMVP")
@@ -522,6 +530,7 @@ private class ChevyGlbOpenGLRenderer(
         GLES30.glUniform3f(uFloorUnderglowColor, params.underglowR, params.underglowG, params.underglowB)
         GLES30.glUniform1f(uFloorUnderglowIntensity, params.underglowIntensity)
         GLES30.glUniform1f(uFloorTime, params.timeSeconds)
+        GLES30.glUniform1f(uFloorHideShadow, if (hideFloorShadow) 1f else 0f)
 
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, floorVbo)
         GLES30.glEnableVertexAttribArray(0)
@@ -1103,13 +1112,14 @@ private class ChevyGlbOpenGLRenderer(
             uniform vec3 uUnderglowColor;
             uniform float uUnderglowIntensity;
             uniform float uTime;
+            uniform float uHideShadow; // 1.0 = sin sombra ovalada (tema Rojo Sport)
 
             out vec4 fragColor;
 
             void main() {
                 vec2 carBox = abs(vPos.xz) / vec2(0.76, 1.84);
                 float boxDist = length(max(carBox - vec2(0.62, 0.72), 0.0));
-                float chassisShadow = 1.0 - smoothstep(0.0, 0.48, boxDist);
+                float chassisShadow = (1.0 - uHideShadow) * (1.0 - smoothstep(0.0, 0.48, boxDist));
 
                 float r = length(vPos.xz / vec2(1.42, 2.22));
                 float platform = 1.0 - smoothstep(0.75, 1.0, r);
