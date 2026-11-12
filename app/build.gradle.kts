@@ -6,12 +6,9 @@ plugins {
 
 android {
   namespace = "com.divinedeck.launcher"
-  // NOTA 2026-11-11 (copia de trabajo): compileSdk bajado de 37 a 36 solo para
-  // poder compilar aquí — la plataforma android-37 no está publicada para
-  // descarga directa y el instalador del SDK no funciona tras el proxy de
-  // esta máquina. targetSdk sigue en 35, así que el APK se comporta igual
-  // en la tablet. En tu PC con Android Studio, vuelve a poner 37.
-  compileSdk = 36
+  // compileSdk 37: los módulos bitchord-* compilan contra 37 y el chequeo
+  // de metadatos AAR exige que :app también compile contra 37.
+  compileSdk = 37
   defaultConfig {
     applicationId = "com.divinedeck.launcher"
     minSdk = 26

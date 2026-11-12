@@ -43,7 +43,7 @@ jobs:
           if command -v sdkmanager >/dev/null; then SDKMANAGER=sdkmanager; else SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"; fi
           echo "sdkmanager: $SDKMANAGER"
           yes | "$SDKMANAGER" --licenses
-          "$SDKMANAGER" "platforms;android-36" "platforms;android-35" "build-tools;35.0.0"
+          "$SDKMANAGER" "platforms;android-37" "platforms;android-36" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Build debug APK
         run: |
@@ -66,5 +66,5 @@ jobs:
             APK debug de DivineDeck con los 10 temas (5 clásicos + 5 Panorámico:
             Minimalista por defecto, Rojo Sport, Espectro, Vaporwave, Ácido Lima)
             y la corrección de M2 (letras offline).
-            Compilado con compileSdk 36 (ver nota en app/build.gradle.kts).
+            Compilado con compileSdk 37 (igual que los módulos bitchord).
           files: app/build/outputs/apk/debug/app-debug.apk
