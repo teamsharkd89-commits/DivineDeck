@@ -41,9 +41,14 @@ jobs:
       - name: Install SDK packages
         run: |
           if command -v sdkmanager >/dev/null; then SDKMANAGER=sdkmanager; else SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"; fi
-          echo "sdkmanager: $SDKMANAGER"
+          echo "installed platforms:"; ls "$ANDROID_HOME/platforms" 2>/dev/null || true
           yes | "$SDKMANAGER" --licenses
-          "$SDKMANAGER" "platforms;android-37" "platforms;android-36" "platforms;android-35" "build-tools;35.0.0"
+          # android-37 is a preview SDK: it is not in the stable channel.
+          # Try stable first, then the canary (3) and dev (2) channels.
+          if [ ! -d "$ANDROID_HOME/platforms/android-37" ]; then
+            "$SDKMANAGER" "platforms;android-37" || "$SDKMANAGER" --channel=3 "platforms;android-37" || "$SDKMANAGER" --channel=2 "platforms;android-37"
+          fi
+          "$SDKMANAGER" "platforms;android-36" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Build debug APK
         run: |
