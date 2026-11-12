@@ -66,45 +66,34 @@ class OfflineSearchData(context: Context) {
     val count: Int get() = places?.size ?: 0
 
     /**
-     * Búsqueda por prefijo: cada palabra de la consulta debe ser prefijo de
-     * alguna palabra del nombre. "av juarez" encuentra "Avenida Juárez".
-     * Las calles vienen segmentadas en Overpass (mismo nombre muchas veces):
-     * se agrupa por nombre y se queda el punto más cercano a [near].
+     * Búsqueda tolerante (ver [OfflineSearchMatcher]): stop words fuera,
+     * prefijo y subcadena, typos con distancia de edición 1-2 o
+     * trigramas, y puntuación en vez de filtro todo-o-nada. "caminando
+     * de jauja" encuentra "Calle Camino Viejo a Jauja"; "jurez" y
+     * "juares" encuentran "Avenida Benito Juárez".
+     * Las calles vienen segmentadas en Overpass (mismo nombre muchas
+     * veces): se agrupa por nombre y se queda el punto más cercano a
+     * [near].
      */
     fun search(query: String, near: NavLatLng?, limit: Int = 8): List<NavPlace> {
         val all = places ?: return emptyList()
-        val tokens = normalize(query).split(" ").filter { it.isNotBlank() }
-        if (tokens.isEmpty()) return emptyList()
-        val bestByName = LinkedHashMap<String, OfflinePlace>()
-        for (place in all) {
-            val words = place.name_norm.split(" ", "-", ".")
-                .filter { it.isNotBlank() }
-            if (words.isEmpty()) continue
-            val matches = tokens.all { token ->
-                words.any { it.startsWith(token) }
-            }
-            if (!matches) continue
-            // Primero el nombre que empieza por la consulta, luego el resto.
-            val startsWithQuery = place.name_norm.startsWith(tokens.first())
-            val key = "${if (startsWithQuery) "0" else "1"}|${place.kind}|${place.name_norm}"
-            val current = bestByName[key]
-            if (current == null) {
-                bestByName[key] = place
-            } else if (near != null) {
-                if (distanceMeters(place.lat, place.lon, near) <
-                    distanceMeters(current.lat, current.lon, near)
-                ) {
-                    bestByName[key] = place
-                }
-            }
-        }
-        return bestByName.values
-            .sortedWith(
-                compareBy<OfflinePlace> { it.name_norm.startsWith(tokens.first()).not() }
-                    .thenBy { it.name_norm }
+        val entries = all.map {
+            SearchEntry(
+                id = it.id,
+                name = it.name,
+                nameNorm = it.name_norm.ifBlank { normalize(it.name) },
+                detail = it.detail,
+                lat = it.lat,
+                lon = it.lon,
+                kind = it.kind
             )
-            .take(limit)
-            .map { it.toNavPlace() }
+        }
+        return OfflineSearchMatcher.search(
+            entries,
+            query,
+            near?.let { it.latitude to it.longitude },
+            limit
+        ).map { it.toNavPlace() }
     }
 
     /** Gasolineras / talleres del JSON, a menos de [radiusMeters] de [center]. */
@@ -142,6 +131,25 @@ class OfflineSearchData(context: Context) {
     }
 
     private fun OfflinePlace.toNavPlace(): NavPlace {
+        val kind = when (this.kind) {
+            "street" -> PoiKind.SEARCH
+            "colonia" -> PoiKind.SEARCH
+            else -> PoiKind.SEARCH
+        }
+        return NavPlace(
+            id = "offline:${this.id}",
+            name = this.name,
+            detail = when {
+                this.kind == "colonia" -> "Colonia · Tepic"
+                this.detail.isNotBlank() -> this.detail
+                else -> "Tepic"
+            },
+            latLng = NavLatLng(latitude = this.lat, longitude = this.lon),
+            kind = kind
+        )
+    }
+
+    private fun SearchEntry.toNavPlace(): NavPlace {
         val kind = when (this.kind) {
             "street" -> PoiKind.SEARCH
             "colonia" -> PoiKind.SEARCH

@@ -57,6 +57,9 @@ object NominatimApi {
             parameter("format", "jsonv2")
             parameter("q", query)
             parameter("countrycodes", "mx")
+            // `accept-language=es` SÍ es válido en Nominatim (a diferencia
+            // del `lang=es` de Photon, que da HTTP 400): verificado en vivo
+            // 2026-11-12, HTTP 200 con resultados en español. No tocar.
             parameter("accept-language", "es")
             parameter("limit", limit)
             if (near != null) {

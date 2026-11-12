@@ -1,0 +1,212 @@
+package com.divinedeck.launcher.feature.navcenter.data
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * Pruebas JVM (sin Android) del matcher tolerante de búsqueda offline.
+ * Cubre los fallos reales reportados en Tepic (build 24): "caminando de
+ * jauja" sin resultados, typos como "jurez"/"juares" sin resultados, y
+ * la regla de que acertar más tokens debe ordenar primero.
+ *
+ * El matcher es Kotlin puro ([OfflineSearchMatcher]); estas pruebas no
+ * necesitan Robolectric ni el JSON real: usan entradas sintéticas con
+ * los mismos nombres que aparecen en tepic_places.json.
+ */
+class OfflineSearchMatcherTest {
+
+    private fun entry(
+        name: String,
+        kind: String = "street",
+        lat: Double = 21.5,
+        lon: Double = -104.9
+    ) = SearchEntry(
+        id = "test:${name.hashCode()}",
+        name = name,
+        nameNorm = OfflineSearchMatcher.normalize(name),
+        detail = "",
+        lat = lat,
+        lon = lon,
+        kind = kind
+    )
+
+    private val dataset = listOf(
+        entry("Calle Camichín de Jauja", lat = 21.4792474, lon = -104.9076467),
+        entry("Calle Camino Viejo a Jauja", lat = 21.5211946, lon = -104.8946128),
+        entry("Camino Viejo a Jauja", lat = 21.5267472, lon = -104.8931468),
+        entry("Calle Camino Real", lat = 21.51, lon = -104.89),
+        entry("Avenida Benito Juárez", lat = 21.5046579, lon = -104.8882155),
+        entry("Andador Benito Juárez", lat = 21.5268901, lon = -104.8850162),
+        entry("Avenida Allende", lat = 21.51, lon = -104.89),
+        entry("Avenida Hidalgo", lat = 21.51, lon = -104.89),
+        entry("Centro", kind = "colonia", lat = 21.508, lon = -104.894),
+        entry("Centro Histórico", kind = "colonia", lat = 21.509, lon = -104.893),
+        entry("Colonia 2 de Agosto", kind = "colonia", lat = 21.52, lon = -104.88),
+        entry("Colonia Bugambilias", kind = "colonia", lat = 21.52, lon = -104.88),
+        entry("Ciudad del Valle", kind = "colonia", lat = 21.52, lon = -104.88),
+        entry("Plaza Fórum", kind = "poi", lat = 21.51, lon = -104.89),
+        entry("Mercado Morelos", kind = "poi", lat = 21.51, lon = -104.89),
+        entry("Hospital General", kind = "poi", lat = 21.51, lon = -104.89),
+        // Basura que el matcher viejo (o un substring sin tope) colaba:
+        // la "a" de "Calle A" acertaba con casi cualquier consulta.
+        entry("Calle A", lat = 21.51, lon = -104.89),
+        entry("Calle J", lat = 21.51, lon = -104.89),
+        entry("Antiguo Camino a San Blas", lat = 21.51, lon = -104.89)
+    )
+
+    private fun search(query: String, limit: Int = 8) =
+        OfflineSearchMatcher.search(dataset, query, near = 21.5 to -104.9, limit)
+
+    // --- El fallo reportado: "caminando de jauja" ---
+
+    @Test
+    fun `caminando de jauja encuentra Camino Viejo a Jauja y Camichin de Jauja`() {
+        val results = search("caminando de jauja")
+        assertTrue(results.isNotEmpty())
+        val names = results.map { it.name }
+        assertTrue("Camino Viejo a Jauja" in names)
+        assertTrue("Calle Camichín de Jauja" in names)
+        // Los dos de Jauja, que aciertan los 2 tokens, van primero.
+        assertEquals("Calle Camino Viejo a Jauja", results[0].name)
+        assertEquals("Camino Viejo a Jauja", results[1].name)
+        assertEquals("Calle Camichín de Jauja", results[2].name)
+        // Ni "Calle A" ni "Antiguo Camino a San Blas" se cuelan arriba.
+        assertTrue("Calle A" !in names.take(3))
+    }
+
+    @Test
+    fun `stop words se ignoran al tokenizar`() {
+        assertEquals(
+            listOf("caminando", "jauja"),
+            OfflineSearchMatcher.tokenizeQuery("caminando de jauja")
+        )
+        assertEquals(
+            listOf("ciudad", "valle"),
+            OfflineSearchMatcher.tokenizeQuery("Ciudad del Valle")
+        )
+    }
+
+    @Test
+    fun `subcadena y prefijo comun - caminando encuentra camino`() {
+        // Prefijo común "camin" (5 letras): 2.0, no un trigramas justo.
+        assertEquals(2.0, OfflineSearchMatcher.bestTokenScore("caminando", "camino"), 0.001)
+        assertEquals(2.0, OfflineSearchMatcher.bestTokenScore("gasolineras", "gasolinera"), 0.001)
+        val results = search("caminando")
+        assertTrue(results.any { it.name == "Calle Camino Viejo a Jauja" })
+    }
+
+    // --- Typos ---
+
+    @Test
+    fun `jurez con una letra menos encuentra Juarez y no Calle J`() {
+        val results = search("Jurez")
+        assertTrue(results.any { "Juárez" in it.name })
+        // Los Juárez (distancia 1) van primero; "Calle J" no aparece.
+        assertTrue("Juárez" in results[0].name)
+        assertTrue(results.none { it.name == "Calle J" })
+    }
+
+    @Test
+    fun `juares con s por z encuentra Juarez`() {
+        val results = search("Juares")
+        assertTrue(results.any { "Juárez" in it.name })
+        assertTrue("Juárez" in results[0].name)
+    }
+
+    @Test
+    fun `av juarez encuentra Avenida Juarez por prefijo`() {
+        val results = search("av juarez")
+        assertTrue(results.isNotEmpty())
+        assertEquals("Avenida Benito Juárez", results[0].name)
+    }
+
+    // --- Puntuación / orden ---
+
+    @Test
+    fun `acertar mas tokens ordena primero`() {
+        // "camino jauja" acierta 2 tokens en las de Jauja y solo 1 en
+        // "Camino Real": las de Jauja van primero.
+        val results = search("camino jauja")
+        val top2 = results.take(2).map { it.name }.toSet()
+        assertEquals(
+            setOf("Calle Camino Viejo a Jauja", "Camino Viejo a Jauja"), top2
+        )
+        assertTrue(results.indexOfFirst { it.name == "Calle Camino Real" } > 1)
+    }
+
+    @Test
+    fun `colonia centro encuentra la colonia Centro aunque colonia no este en el nombre`() {
+        val results = search("Colonia Centro")
+        assertTrue(results.any { it.name == "Centro" && it.kind == "colonia" })
+        // "Centro" (acierta "centro") va antes que las 199 colonias que
+        // solo aciertan la palabra genérica "colonia".
+        assertEquals("Centro", results[0].name)
+    }
+
+    @Test
+    fun `ciudad del valle encuentra la colonia`() {
+        val results = search("Ciudad del Valle")
+        assertEquals("Ciudad del Valle", results[0].name)
+    }
+
+    @Test
+    fun `consultas de un token funcionan - allende hidalgo mercado hospital`() {
+        assertEquals("Avenida Allende", search("Allende")[0].name)
+        assertEquals("Avenida Hidalgo", search("Hidalgo")[0].name)
+        assertEquals("Mercado Morelos", search("Mercado")[0].name)
+        assertEquals("Hospital General", search("Hospital")[0].name)
+    }
+
+    // --- Sin resultados de verdad ---
+
+    @Test
+    fun `catedral no encuentra nada si el dataset no la tiene`() {
+        // Ni siquiera con "Calle A" o "Antiguo Camino a San Blas" en el
+        // dataset: la "a" sola ya no cuenta como coincidencia.
+        assertTrue(search("Catedral").isEmpty())
+    }
+
+    @Test
+    fun `consulta vacia o solo stop words sin contenido no devuelve nada`() {
+        assertTrue(search("").isEmpty())
+        assertTrue(search("   ").isEmpty())
+    }
+
+    // --- Deduplicación y límite ---
+
+    @Test
+    fun `mismo nombre varias veces se deduplica quedando el punto mas cercano`() {
+        val entries = listOf(
+            entry("Avenida Benito Juárez", lat = 21.60, lon = -104.99),
+            entry("Avenida Benito Juárez", lat = 21.5001, lon = -104.9001),
+            entry("Avenida Benito Juárez", lat = 21.51, lon = -104.91)
+        )
+        val results = OfflineSearchMatcher.search(
+            entries, "juarez", near = 21.5 to -104.9, limit = 8
+        )
+        assertEquals(1, results.size)
+        assertEquals(21.5001, results[0].lat, 0.00001)
+    }
+
+    @Test
+    fun `limit se respeta`() {
+        assertEquals(2, search("avenida", limit = 2).size)
+    }
+
+    // --- Normalización y distancia ---
+
+    @Test
+    fun `normalize quita acentos y minusculas`() {
+        assertEquals("juarez", OfflineSearchMatcher.normalize("Juárez"))
+        assertEquals("camichin de jauja", OfflineSearchMatcher.normalize("Camichín de Jauja"))
+    }
+
+    @Test
+    fun `levenshtein tolera un cambio y trigramas dan similitud`() {
+        assertEquals(1, OfflineSearchMatcher.levenshtein("jurez", "juarez"))
+        assertEquals(1, OfflineSearchMatcher.levenshtein("juares", "juarez"))
+        assertTrue(OfflineSearchMatcher.trigramSimilarity("caminando", "camina") >= 0.5)
+        assertEquals(5, OfflineSearchMatcher.commonPrefixLength("caminando", "camino"))
+    }
+}

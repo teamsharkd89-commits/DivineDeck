@@ -78,7 +78,10 @@ object PhotonApi {
             NavHttp.client.get(BASE_URL) {
                 parameter("q", query)
                 parameter("limit", limit)
-                parameter("lang", "es")
+                // SIN `lang`: Photon rechaza `lang=es` con HTTP 400
+                // ("Language is not supported. Supported are: default, de,
+                // en, fr"). Con el idioma por defecto devuelve los nombres
+                // locales en español en México. Verificado en vivo 2026-11-12.
                 parameter("countrycode", "mx")
                 if (near != null) {
                     parameter("lat", near.latitude)

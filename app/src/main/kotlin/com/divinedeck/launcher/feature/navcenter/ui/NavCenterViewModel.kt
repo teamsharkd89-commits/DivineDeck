@@ -351,7 +351,12 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
                 Log.w(TAG, "Búsqueda Nominatim falló: ${e.message}")
                 null
             }
-            if (fallbackResults.isNullOrEmpty()) {
+            // Respaldo con éxito (aunque devuelva 0 resultados) = "sin
+            // resultados" de verdad, sin error. Solo si Nominatim LANZA
+            // (null) el servicio falló y se muestra error + "Reintentar".
+            if (fallbackResults != null) {
+                _uiState.update { it.copy(searchResults = fallbackResults, isSearching = false, searchError = null) }
+            } else {
                 _uiState.update {
                     it.copy(
                         searchResults = emptyList(),
@@ -359,8 +364,6 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
                         searchError = "No se pudo buscar: el servicio no responde. Revisa tu internet e inténtalo de nuevo."
                     )
                 }
-            } else {
-                _uiState.update { it.copy(searchResults = fallbackResults, isSearching = false, searchError = null) }
             }
         }
     }
