@@ -249,6 +249,9 @@ private class ChevyGlbOpenGLRenderer(
     private var floorProgram = 0
     private var particleProgram = 0
     private var trailProgram = 0
+    private var backgroundProgram = 0
+    private var viewportWidth = 1
+    private var viewportHeight = 1
     private var floorVbo = 0
     private var trailIbo = 0
 
@@ -281,6 +284,12 @@ private class ChevyGlbOpenGLRenderer(
     // Ubicaciones en caché de uniformes Partículas y Estelas
     private var uParticleMvp = -1
     private var uTrailMvp = -1
+
+    // Ubicaciones en caché de uniformes Fondo animado
+    private var uBgResolution = -1
+    private var uBgAccent = -1
+    private var uBgTime = -1
+    private var uBgSpeedFactor = -1
 
     private class GpuSubMesh(
         val vboPositions: Int,
@@ -334,6 +343,7 @@ private class ChevyGlbOpenGLRenderer(
         floorProgram = buildShaderProgram(FLOOR_VERTEX_SHADER, FLOOR_FRAGMENT_SHADER)
         particleProgram = buildShaderProgram(PARTICLE_VERTEX_SHADER, PARTICLE_FRAGMENT_SHADER)
         trailProgram = buildShaderProgram(TRAIL_VERTEX_SHADER, TRAIL_FRAGMENT_SHADER)
+        backgroundProgram = buildShaderProgram(BACKGROUND_VERTEX_SHADER, BACKGROUND_FRAGMENT_SHADER)
 
         // Registrar uniformes PBR en caché
         uPbrMvp = GLES30.glGetUniformLocation(pbrProgram, "uMVP")
@@ -365,6 +375,12 @@ private class ChevyGlbOpenGLRenderer(
         uParticleMvp = GLES30.glGetUniformLocation(particleProgram, "uMVP")
         uTrailMvp = GLES30.glGetUniformLocation(trailProgram, "uMVP")
 
+        // Registrar uniformes Fondo animado
+        uBgResolution = GLES30.glGetUniformLocation(backgroundProgram, "uResolution")
+        uBgAccent = GLES30.glGetUniformLocation(backgroundProgram, "uAccentColor")
+        uBgTime = GLES30.glGetUniformLocation(backgroundProgram, "uTime")
+        uBgSpeedFactor = GLES30.glGetUniformLocation(backgroundProgram, "uSpeedFactor")
+
         setupFloorQuad()
         setupTrailIndexBuffer()
         val modelData: GlbModelData = GlbModelLoader.loadFromAssets(appContext)
@@ -374,6 +390,8 @@ private class ChevyGlbOpenGLRenderer(
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         GLES30.glViewport(0, 0, width, height)
+        viewportWidth = width.coerceAtLeast(1)
+        viewportHeight = height.coerceAtLeast(1)
         val aspect = width.toFloat() / height.coerceAtLeast(1).toFloat()
         // Lente de estudio automotriz de 28° (minimiza distorsión de perspectiva y amplía presencia del vehículo)
         Matrix.perspectiveM(projMatrix, 0, 28f, aspect, 0.25f, 30f)
@@ -405,6 +423,12 @@ private class ChevyGlbOpenGLRenderer(
 
         GLES30.glClearColor(bgR, bgG, bgB, 1.0f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
+
+        // 0. Fondo animado y reactivo detrás del vehículo (Fase 06.11):
+        // gradiente del tema + brillo pulsante + rejilla en perspectiva que
+        // se desplaza con la velocidad. Se dibuja primero, sin depth test,
+        // para que el piso 3D y el auto queden por encima.
+        drawAnimatedBackground(effectsParams)
 
         // Distancia calibrada (3.52m base con FOV 28°) para que el Chevy C2 ocupe ~78% del visor centrado sin cortarse
         val distance = (3.52f / currentZoom.coerceIn(0.5f, 2.5f)).coerceIn(1.60f, 6.8f)
@@ -459,6 +483,31 @@ private class ChevyGlbOpenGLRenderer(
 
         // 5. Partículas dinámicas (Humo de escape, chispas incandescentes, humo de fricción de neumáticos)
         effectsParams.particleSystem?.let { drawParticles(it) }
+    }
+
+    /**
+     * Fondo animado y reactivo del estudio 3D (Fase 06.11).
+     * Triángulo a pantalla completa en clip-space con el color de acento del
+     * tema: gradiente oscuro arriba, brillo radial pulsante detrás del auto y
+     * rejilla en perspectiva en el piso que se desplaza con la velocidad
+     * (uSpeedFactor = effectIntensity del controlador de efectos).
+     */
+    private fun drawAnimatedBackground(params: SpeedEffectsParameters) {
+        if (backgroundProgram == 0) return
+        GLES30.glUseProgram(backgroundProgram)
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        GLES30.glDepthMask(false)
+
+        GLES30.glUniform2f(uBgResolution, viewportWidth.toFloat(), viewportHeight.toFloat())
+        GLES30.glUniform3f(uBgAccent, accR, accG, accB)
+        GLES30.glUniform1f(uBgTime, params.timeSeconds)
+        GLES30.glUniform1f(uBgSpeedFactor, params.effectIntensity.coerceIn(0f, 1f))
+
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3)
+
+        GLES30.glDepthMask(true)
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        GLES30.glUseProgram(0)
     }
 
     private fun drawStudioFloor(params: SpeedEffectsParameters) {
@@ -788,6 +837,64 @@ private class ChevyGlbOpenGLRenderer(
     }
 
     companion object {
+        private const val BACKGROUND_VERTEX_SHADER = """#version 300 es
+            // Triángulo a pantalla completa vía gl_VertexID (sin VBO).
+            void main() {
+                vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+                gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+            }
+        """
+
+        private const val BACKGROUND_FRAGMENT_SHADER = """#version 300 es
+            precision highp float;
+
+            uniform vec2 uResolution;
+            uniform vec3 uAccentColor;
+            uniform float uTime;
+            uniform float uSpeedFactor;
+
+            out vec4 fragColor;
+
+            void main() {
+                vec2 uv = gl_FragCoord.xy / uResolution;
+                vec2 p = uv * 2.0 - 1.0;
+                p.x *= uResolution.x / uResolution.y;
+
+                // Pulso suave siempre vivo + más intenso con la velocidad.
+                float pulse = 0.75 + 0.25 * sin(uTime * 1.6);
+                float energy = 0.35 + 0.65 * uSpeedFactor;
+
+                // Cielo: oscuro arriba, tinte del acento del tema abajo.
+                vec3 col = mix(
+                    uAccentColor * 0.16,
+                    vec3(0.008, 0.010, 0.020),
+                    smoothstep(-0.7, 0.9, p.y)
+                );
+
+                // Brillo radial detrás del auto (centro levemente arriba).
+                vec2 glowCenter = vec2(0.0, 0.08);
+                float d = length((p - glowCenter) * vec2(0.72, 1.0));
+                float glow = exp(-d * d * 2.0) * pulse * energy;
+                col += uAccentColor * glow * 0.55;
+
+                // Piso con rejilla en perspectiva bajo el horizonte, como el mockup.
+                float horizon = -0.18;
+                if (p.y < horizon) {
+                    float depth = horizon - p.y;
+                    float z = 1.0 / (depth + 0.10);
+                    float scroll = uTime * (0.25 + 2.4 * uSpeedFactor);
+                    vec2 g = vec2(p.x * z, z + scroll);
+                    vec2 grid = abs(fract(g) - 0.5);
+                    float line = 1.0 - smoothstep(0.0, 0.06, min(grid.x, grid.y));
+                    float fade = smoothstep(0.0, 0.30, depth) * (1.0 - smoothstep(0.55, 1.15, depth));
+                    col += uAccentColor * line * fade * (0.35 + 0.45 * energy);
+                    col = mix(col, uAccentColor * 0.07, fade * 0.45);
+                }
+
+                fragColor = vec4(col, 1.0);
+            }
+        """
+
         private const val PBR_VERTEX_SHADER = """#version 300 es
             precision highp float;
             precision highp int;
