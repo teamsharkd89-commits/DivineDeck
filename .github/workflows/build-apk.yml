@@ -43,12 +43,19 @@ jobs:
           if command -v sdkmanager >/dev/null; then SDKMANAGER=sdkmanager; else SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"; fi
           echo "installed platforms:"; ls "$ANDROID_HOME/platforms" 2>/dev/null || true
           yes | "$SDKMANAGER" --licenses
-          # android-37 is a preview SDK: it is not in the stable channel.
-          # Try stable first, then the canary (3) and dev (2) channels.
-          if [ ! -d "$ANDROID_HOME/platforms/android-37" ]; then
-            "$SDKMANAGER" "platforms;android-37" || "$SDKMANAGER" --channel=3 "platforms;android-37" || "$SDKMANAGER" --channel=2 "platforms;android-37"
-          fi
           "$SDKMANAGER" "platforms;android-36" "platforms;android-35" "build-tools;35.0.0"
+          # android-37 is not published in any sdkmanager channel yet
+          # (stable, canary and dev all report "Failed to find package").
+          # The project declares compileSdk 37 and its AAR metadata check
+          # compares declared versions, so provide the platform folder
+          # with the android-36 files: if the code used API 37-only symbols
+          # the build fails loudly here instead of silently miscompiling.
+          if [ ! -d "$ANDROID_HOME/platforms/android-37" ]; then
+            "$SDKMANAGER" "platforms;android-37" || "$SDKMANAGER" --channel=3 "platforms;android-37" || "$SDKMANAGER" --channel=2 "platforms;android-37" || echo "android-37 not available via sdkmanager, using android-36 files"
+          fi
+          if [ ! -d "$ANDROID_HOME/platforms/android-37" ]; then
+            cp -r "$ANDROID_HOME/platforms/android-36" "$ANDROID_HOME/platforms/android-37"
+            ls "$ANDROID_HOME/platforms/android-37" | head
 
       - name: Build debug APK
         run: |
