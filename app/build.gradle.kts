@@ -44,6 +44,9 @@ android {
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
+    // Ferrostar 0.59.0 exige core library desugaring (usa java.time y otras
+    // APIs modernas; su minSdk es 25 y el de DivineDeck es 26).
+    isCoreLibraryDesugaringEnabled = true
   }
   buildFeatures {
     compose = true
@@ -74,6 +77,7 @@ dependencies {
 
   // Core Android dependencies
   implementation(libs.androidx.core.ktx)
+  coreLibraryDesugaring(libs.desugar.jdk.libs)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.activity.compose)
 
