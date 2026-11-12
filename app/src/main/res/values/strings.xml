@@ -1,0 +1,38 @@
+<resources>
+    <string name="app_name">DIVINE DECK</string>
+    <string name="app_subtitle">Automotive Infotainment System</string>
+    <string name="vehicle_model">Chevrolet Chevy C2 2009</string>
+    
+    <!-- Navigation Tabs -->
+    <string name="nav_cockpit">Cockpit</string>
+    <string name="nav_music">Música</string>
+    <string name="nav_navigation">Navegación</string>
+    <string name="nav_garage3d">Garaje 3D</string>
+    <string name="nav_widgets">Widgets</string>
+    <string name="nav_apps">Aplicaciones</string>
+    <string name="nav_settings">Ajustes</string>
+    <string name="nav_exit">Salir a One UI</string>
+
+    <!-- Cockpit Labels -->
+    <string name="cockpit_speed_unit">km/h</string>
+    <string name="cockpit_gps_precision">Precisión GPS</string>
+    <string name="cockpit_gps_searching">Buscando satélites…</string>
+    <string name="cockpit_gps_optimal">Precisión Óptima</string>
+    <string name="cockpit_gps_medium">Precisión Media</string>
+    <string name="cockpit_gps_low">Baja Señal</string>
+    
+    <!-- Exit Confirmation Dialogs -->
+    <string name="exit_step1_title">¿Salir al escritorio Samsung One UI?</string>
+    <string name="exit_step1_message">Esta acción abrirá temporalmente la pantalla de inicio de Samsung. DIVINE DECK seguirá configurado como launcher predeterminado.</string>
+    <string name="exit_step1_confirm">Continuar</string>
+    <string name="exit_step1_cancel">Permanecer en DIVINE DECK</string>
+    
+    <string name="exit_step2_title">Confirmación Final de Salida</string>
+    <string name="exit_step2_message">¿Deseas abrir la interfaz One UI ahora? Podrás regresar en cualquier instante presionando el botón de inicio o seleccionando DIVINE DECK.</string>
+    <string name="exit_step2_confirm">Confirmar y Salir</string>
+    <string name="exit_step2_cancel">Cancelar</string>
+
+    <!-- Modes -->
+    <string name="mode_automotive">Modo Automóvil</string>
+    <string name="mode_personal">Modo Personal</string>
+</resources>

@@ -1,0 +1,38 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Anillo exterior del velocímetro automotriz -->
+    <path
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="3"
+        android:pathData="M 30,75 A 32,32 0 1,1 78,75" />
+
+    <!-- Acento Chevy Gold en el arco superior -->
+    <path
+        android:strokeColor="#FFB300"
+        android:strokeWidth="4"
+        android:pathData="M 46,24 A 32,32 0 0,1 62,24" />
+
+    <!-- Aguja central del velocímetro a 45 grados -->
+    <path
+        android:strokeColor="#FF1744"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:pathData="M 54,54 L 72,36" />
+
+    <!-- Centro de la aguja -->
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M 54,54 m -4,0 a 4,4 0 1,0 8,0 a 4,4 0 1,0 -8,0" />
+
+    <!-- Letras 'D' 'D' de DIVINE DECK estilizadas automotrices -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 38,62 L 44,62 C 48,62 50,65 50,68 C 50,71 48,74 44,74 L 38,74 Z M 41,65 L 41,71 L 43.5,71 C 45.5,71 46.5,70 46.5,68 C 46.5,66 45.5,65 43.5,65 Z" />
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M 56,62 L 62,62 C 66,62 68,65 68,68 C 68,71 66,74 62,74 L 56,74 Z M 59,65 L 59,71 L 61.5,71 C 63.5,71 64.5,70 64.5,68 C 64.5,66 63.5,65 61.5,65 Z" />
+</vector>

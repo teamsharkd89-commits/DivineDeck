@@ -1,0 +1,68 @@
+# Compila el APK debug con los temas (Fase 06.11) y publica un release.
+# Se ejecuta automáticamente con cada push a main.
+# Los archivos binarios (modelo 3D, iconos, gradle-wrapper.jar) van en
+# assets-bin/ codificados en base64 y se restauran antes de compilar.
+name: Build debug APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore binary assets
+        run: |
+          find assets-bin -name '*.b64' | while read f; do
+            dest="${f#assets-bin/}"
+            dest="${dest%.b64}"
+            mkdir -p "$(dirname "$dest")"
+            base64 -d "$f" > "$dest"
+          done
+          ls -lh app/src/main/assets/models/chevy_c2_2009.glb
+          ls app/src/main/res/mipmap-hdpi/
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platforms;android-36" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Build debug APK
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DivineDeck-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Publish release with the APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: debug-06.11-${{ github.run_number }}
+          name: DivineDeck 06.11 debug (build ${{ github.run_number }})
+          body: |
+            APK debug de DivineDeck con los 10 temas (5 clásicos + 5 Panorámico:
+            Minimalista por defecto, Rojo Sport, Espectro, Vaporwave, Ácido Lima)
+            y la corrección de M2 (letras offline).
+            Compilado con compileSdk 36 (ver nota en app/build.gradle.kts).
+          files: app/build/outputs/apk/debug/app-debug.apk

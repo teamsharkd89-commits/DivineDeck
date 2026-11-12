@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Permisos para GPS Speedometer -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Permisos para integración de widgets Android -->
+    <uses-permission android:name="android.permission.BIND_APPWIDGET"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- Permisos para consultar aplicaciones instaladas en App Center -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <!-- Permiso de red para carga de carátulas y metadatos remotos (Coil 3 / BitChord) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Permisos para Servicio Multimedia Interno Media3 y Reproducción de Audio Local -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+
+    <!-- Visibilidad de paquetes explícita para el servicio multimedia de BitChord (Media3) -->
+    <queries>
+        <package android:name="com.music.bitchord" />
+        <intent>
+            <action android:name="androidx.media3.session.MediaSessionService" />
+        </intent>
+        <intent>
+            <action android:name="androidx.media3.session.MediaLibraryService" />
+        </intent>
+    </queries>
+
+    <!-- Características de hardware requeridas / opcionales -->
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="true" />
+    <uses-feature android:glEsVersion="0x00030002" android:required="true" />
+
+    <application
+        android:name=".DivineDeckApp"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:hardwareAccelerated="true"
+        android:theme="@style/Theme.DivineDeck">
+
+        <!-- Actividad Principal: Lanzador HOME automotriz en Orientación LANDSCAPE permanente -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:clearTaskOnLaunch="false"
+            android:stateNotNeeded="true"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density|keyboard|keyboardHidden"
+            android:windowSoftInputMode="adjustResize">
+
+            <!-- Lanzador convencional desde aplicaciones -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Lanzador HOME predeterminado de Android (Automotive Launcher) -->
+            <intent-filter priority="1">
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- Servicio Multimedia Interno Media3 de DIVINE DECK (Motor BitChord) -->
+        <service
+            android:name=".feature.music.playback.DivineDeckPlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+                <action android:name="androidx.media3.session.MediaLibraryService" />
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+
+    </application>
+
+</manifest>
