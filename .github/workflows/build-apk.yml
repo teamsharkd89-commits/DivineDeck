@@ -58,6 +58,17 @@ jobs:
             ls "$ANDROID_HOME/platforms/android-37" | head
           fi
 
+      # Firma persistente: todos los APK debug se firman con el mismo
+      # debug keystore (secreto ANDROID_DEBUG_KEYSTORE_B64), para que cada
+      # APK nuevo se instale como actualización normal sin desinstalar.
+      # Sin esto, cada runner genera su propio keystore y Android rechaza
+      # la instalación por "conflicto con el paquete".
+      - name: Restore persistent debug keystore
+        run: |
+          mkdir -p ~/.android
+          echo "${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}" | base64 -d > ~/.android/debug.keystore
+          ls -l ~/.android/debug.keystore
+
       - name: Build debug APK
         run: |
           chmod +x gradlew
@@ -77,7 +88,8 @@ jobs:
           name: DivineDeck 06.11 debug (build ${{ github.run_number }})
           body: |
             APK debug de DivineDeck con los 10 temas (5 clásicos + 5 Panorámico:
-            Minimalista por defecto, Rojo Sport, Espectro, Vaporwave, Ácido Lima)
-            y la corrección de M2 (letras offline).
+            Minimalista por defecto, Rojo Sport, Espectro, Vaporwave, Ácido Lima),
+            la corrección de M2 (letras offline) y el apartado Ajustes > Distribución
+            (Original / Panorámica, con velocímetro analógico).
             Compilado con compileSdk 37 (igual que los módulos bitchord).
           files: app/build/outputs/apk/debug/app-debug.apk
