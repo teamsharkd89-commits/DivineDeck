@@ -35,13 +35,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
+      # Nota: NO usamos android-actions/setup-android: su versión actual
+      # intenta instalar el paquete obsoleto "tools" y el paso falla.
+      # La imagen ubuntu-latest ya trae el Android SDK preinstalado.
       - name: Install SDK packages
         run: |
-          yes | sdkmanager --licenses
-          sdkmanager "platforms;android-36" "platforms;android-35" "build-tools;35.0.0"
+          if command -v sdkmanager >/dev/null; then SDKMANAGER=sdkmanager; else SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"; fi
+          echo "sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses
+          "$SDKMANAGER" "platforms;android-36" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Build debug APK
         run: |
