@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocalGasStation
 import androidx.compose.material.icons.filled.Map
@@ -55,6 +56,8 @@ import com.divinedeck.launcher.core.designsystem.components.AutomotiveCard
 import com.divinedeck.launcher.core.designsystem.components.AutomotivePrimaryButton
 import com.divinedeck.launcher.core.designsystem.components.AutomotiveSecondaryButton
 import com.divinedeck.launcher.core.designsystem.theme.DivineDeckTheme
+import com.divinedeck.launcher.feature.navcenter.data.MapPackState
+import com.divinedeck.launcher.feature.navcenter.data.RoutingPackState
 import com.divinedeck.launcher.feature.navcenter.domain.NavLatLng
 import com.divinedeck.launcher.feature.navcenter.domain.NavPlace
 import com.divinedeck.launcher.feature.navcenter.domain.NavigationLauncherRepository
@@ -308,6 +311,29 @@ fun NavCenterScreen(
                 .padding(end = 12.dp, bottom = 132.dp)
         )
 
+        // Chip de conectividad + nota de ruta offline: siempre visible,
+        // también navegando (la columna de búsqueda se oculta al navegar).
+        if (uiState.isNavigating) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                ConnectivityChip(isOnline = uiState.isOnline)
+                if (!uiState.isOnline && uiState.lastRouteOffline) {
+                    Text(
+                        text = "Ruta calculada sin internet",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White,
+                        modifier = Modifier
+                            .background(Color(0xFFB45309).copy(alpha = 0.95f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
+            }
+        }
+
         if (!uiState.isNavigating) {
             // --- Barra superior: búsqueda + destinos rápidos ---
             Column(
@@ -316,6 +342,10 @@ fun NavCenterScreen(
                     .padding(12.dp)
                     .width(460.dp)
             ) {
+                // Chip de conectividad: siempre visible en esta pantalla.
+                ConnectivityChip(isOnline = uiState.isOnline)
+                Spacer(modifier = Modifier.height(8.dp))
+
                 OutlinedTextField(
                     value = uiState.searchQuery,
                     onValueChange = viewModel::onSearchQueryChange,
@@ -448,6 +478,15 @@ fun NavCenterScreen(
                             .padding(horizontal = 10.dp, vertical = 6.dp)
                     )
                 }
+
+                // Paquetes offline (mapa + rutas de Tepic): solo se muestra
+                // mientras falte algo por descargar.
+                OfflinePacksCard(
+                    isOnline = uiState.isOnline,
+                    mapPackState = uiState.mapPackState,
+                    routingPackState = uiState.routingPackState,
+                    onDownloadClick = viewModel::downloadOfflinePacks
+                )
             }
 
             // --- Alternativa externa: Google Maps (tráfico en vivo) ---
@@ -650,6 +689,95 @@ private fun PlaceMarker(
         strokeColor = const(Color.White),
         strokeWidth = const(2.dp)
     )
+}
+
+/** Chip de conectividad: siempre visible en Navegación. */
+@Composable
+private fun ConnectivityChip(isOnline: Boolean) {
+    val (label, background) = if (isOnline) {
+        "● En línea" to Color(0xFF1E7A4C)
+    } else {
+        "● Sin internet · Mapa offline" to Color(0xFFB45309)
+    }
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelLarge,
+        color = Color.White,
+        modifier = Modifier
+            .background(background.copy(alpha = 0.95f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 12.dp, vertical = 7.dp)
+    )
+}
+
+/** Estado de los paquetes offline + acción de descarga manual. */
+@Composable
+private fun OfflinePacksCard(
+    isOnline: Boolean,
+    mapPackState: MapPackState,
+    routingPackState: RoutingPackState,
+    onDownloadClick: () -> Unit
+) {
+    val mapReady = mapPackState is MapPackState.Ready
+    val routesReady = routingPackState is RoutingPackState.Ready
+    if (mapReady && routesReady) return
+    val palette = DivineDeckTheme.palette
+    val isBusy = mapPackState is MapPackState.Downloading ||
+        routingPackState is RoutingPackState.Downloading ||
+        routingPackState is RoutingPackState.Verifying
+    Spacer(modifier = Modifier.height(8.dp))
+    AutomotiveCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                "Modo offline de Tepic",
+                style = MaterialTheme.typography.titleMedium,
+                color = palette.textPrimary
+            )
+            Text(
+                text = "Mapa offline: " + when (mapPackState) {
+                    is MapPackState.Ready -> "listo"
+                    is MapPackState.Downloading -> "descargando ${(mapPackState.fraction * 100).toInt()}%"
+                    is MapPackState.Error -> "error — reintenta con internet"
+                    is MapPackState.NotDownloaded -> "no descargado"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = palette.textSecondary
+            )
+            Text(
+                text = "Rutas offline: " + when (routingPackState) {
+                    is RoutingPackState.Ready -> "listas"
+                    is RoutingPackState.Downloading -> "descargando ${(routingPackState.fraction * 100).toInt()}%"
+                    is RoutingPackState.Verifying -> "verificando…"
+                    is RoutingPackState.Error -> "error — reintenta con internet"
+                    is RoutingPackState.NotDownloaded -> "no descargadas"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = palette.textSecondary
+            )
+            if (!isOnline) {
+                Text(
+                    text = "Descarga el paquete offline con internet",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = palette.textPrimary
+                )
+            } else if (!isBusy) {
+                Spacer(modifier = Modifier.height(4.dp))
+                AutomotiveSecondaryButton(onClick = onDownloadClick) {
+                    Icon(Icons.Default.Download, contentDescription = null, tint = palette.accent)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Descargar paquetes offline", color = palette.textPrimary)
+                }
+            } else {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = palette.accent,
+                    strokeWidth = 2.dp
+                )
+            }
+        }
+    }
 }
 
 /** Chip de destino rápido (gasolinera, taller, casa, trabajo). */

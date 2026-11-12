@@ -152,4 +152,12 @@ dependencies {
   implementation(libs.ferrostar.ui.maplibre)
   implementation(libs.ferrostar.google.play.services)
   implementation(libs.maplibre.compose)
+
+  // Modo offline (Tepic): motor Valhalla en el dispositivo (valhalla-mobile
+  // 0.6.4 + modelos 0.6.0 + osrm-openapi) para rutas sin internet. El mapa
+  // offline usa el OfflineManager que ya trae MapLibre Compose 0.13.0.
+  implementation(libs.valhalla.mobile)
+  implementation(libs.valhalla.models)
+  implementation(libs.valhalla.models.config)
+  implementation(libs.osrm.openapi)
 }

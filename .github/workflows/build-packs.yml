@@ -1,0 +1,171 @@
+# Construye los paquetes offline de Tepic (grafo Valhalla) y los publica
+# como assets del release fijo `offline-packs`.
+#
+# Por qué un release y no git/assets: el grafo pesa decenas de MB y el push
+# a GitHub se hace por la API de datos (límite de blob 100 MB); la app
+# descarga el .tar en la primera ejecución con internet (o Daniel lo carga
+# a mano por Drive/USB) y lo verifica con SHA-256 contra catalogue.json.
+#
+# Se ejecuta al cambiar este archivo y manualmente (workflow_dispatch).
+# El mapa offline (teselas) NO se construye aquí: lo descarga la propia app
+# con MapLibre OfflineManager desde OpenFreeMap (z10–z15, ~4 MB).
+name: Build offline packs (Tepic)
+
+on:
+  push:
+    paths:
+      - .github/workflows/build-packs.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-packs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install osmium-tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y osmium-tool
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pyvalhalla
+        run: pip install pyvalhalla==3.9.1
+
+      - name: Download Mexico PBF (Geofabrik)
+        run: |
+          curl --retry 3 -L -o mexico-latest.osm.pbf \
+            https://download.geofabrik.de/north-america/mexico-latest.osm.pbf
+          ls -lh mexico-latest.osm.pbf
+
+      # Recorte de Tepic + afueras (bbox de enrutado: -105.1,21.3,-104.65,21.7).
+      - name: Clip Tepic extract
+        run: |
+          osmium extract -b -105.1,21.3,-104.65,21.7 \
+            mexico-latest.osm.pbf -o tepic.osm.pbf
+          ls -lh tepic.osm.pbf
+
+      - name: Build Valhalla tiles
+        run: |
+          mkdir -p valhalla_tiles
+          valhalla_build_config \
+            --mjolnir-tile-dir "$PWD/valhalla_tiles" \
+            --mjolnir-tile-extract "$PWD/valhalla_tiles.tar" \
+            > valhalla.json
+          valhalla_build_tiles -c valhalla.json tepic.osm.pbf
+          ls valhalla_tiles | head
+
+      - name: Build tile extract (tar)
+        run: |
+          valhalla_build_extract -c valhalla.json \
+            --bbox -105.1,21.3,-104.65,21.7 -O
+          ls -lh valhalla_tiles.tar
+          echo "tiles in tar: $(tar -tf valhalla_tiles.tar | wc -l)"
+
+      # Respaldo: si el JSON de búsqueda offline no viene en el repo
+      # (se genera en local desde Overpass y va en assets/), se genera aquí
+      # desde Overpass y se publica como asset descargable por la app.
+      - name: Build offline search data (fallback, only if asset missing)
+        if: hashFiles('app/src/main/assets/offline/tepic_places.json') == ''
+        run: |
+          python3 - <<'PYEOF'
+          import json, time, unicodedata, urllib.request, urllib.parse
+          UA = {"User-Agent": "DivineDeck/1.0 (Android car launcher; Tepic, Nayarit, MX)"}
+          BBOX = "21.3,-105.05,21.7,-104.7"
+          QUERIES = {
+              "streets": '[out:json][timeout:60];way["highway"]["name"](%s);out center 5000;' % BBOX,
+              "amenity": '[out:json][timeout:60];(node["amenity"~"fuel|restaurant|hospital|pharmacy"](%s);way["amenity"~"fuel|restaurant|hospital|pharmacy"](%s);node["shop"="car_repair"](%s);way["shop"="car_repair"](%s););out center 2000;' % (BBOX, BBOX, BBOX, BBOX),
+              "places": '[out:json][timeout:60];(node["place"~"suburb|neighbourhood|quarter"](%s);way["place"~"suburb|neighbourhood|quarter"](%s););out center 2000;' % (BBOX, BBOX),
+          }
+          def norm(s):
+              s = unicodedata.normalize("NFD", s or "")
+              return "".join(c for c in s if unicodedata.category(c) != "Mn").lower().strip()
+          def fetch(q):
+              last = None
+              for attempt in range(4):
+                  for ep in ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"]:
+                      try:
+                          data = urllib.parse.urlencode({"data": q}).encode()
+                          req = urllib.request.Request(ep, data=data, headers=UA)
+                          with urllib.request.urlopen(req, timeout=120) as r:
+                              return json.load(r)
+                      except Exception as e:
+                          last = e
+                          print(f"attempt {attempt+1} {ep}: {e}", flush=True)
+                  time.sleep(15 * (attempt + 1))
+              raise RuntimeError(f"Overpass failed: {last}")
+          out = {}
+          for key, q in QUERIES.items():
+              resp = fetch(q)
+              for el in resp.get("elements", []):
+                  tags = el.get("tags", {})
+                  name = tags.get("name")
+                  if not name:
+                      continue
+                  lat = el.get("lat") or (el.get("center") or {}).get("lat")
+                  lon = el.get("lon") or (el.get("center") or {}).get("lon")
+                  if lat is None or lon is None:
+                      continue
+                  oid = f"{el.get('type')}/{el.get('id')}"
+                  if oid in out:
+                      continue
+                  kind = {"streets": "street", "amenity": "poi", "places": "colonia"}[key]
+                  detail = ""
+                  if key == "amenity":
+                      detail = tags.get("amenity") or tags.get("shop") or ""
+                  elif key == "places":
+                      detail = "Colonia"
+                  out[oid] = {"id": oid, "name": name, "name_norm": norm(name), "detail": detail, "lat": lat, "lon": lon, "kind": kind}
+          with open("tepic_places.json", "w") as f:
+              json.dump(sorted(out.values(), key=lambda x: x["name_norm"]), f, ensure_ascii=False)
+          print(f"WROTE {len(out)} places")
+          PYEOF
+          ls -lh tepic_places.json
+
+      - name: Write catalogue.json (SHA-256 + sizes)
+        run: |
+          python3 - <<'PYEOF'
+          import hashlib, json, os
+          assets = []
+          for name in ["valhalla_tiles.tar", "tepic_places.json"]:
+              if not os.path.exists(name):
+                  continue
+              h = hashlib.sha256()
+              size = 0
+              with open(name, "rb") as f:
+                  for chunk in iter(lambda: f.read(1 << 20), b""):
+                      h.update(chunk)
+                      size += len(chunk)
+              assets.append({"name": name, "sha256": h.hexdigest(), "size": size})
+              print(name, size, h.hexdigest())
+          assert any(a["name"] == "valhalla_tiles.tar" for a in assets), "valhalla_tiles.tar missing"
+          with open("catalogue.json", "w") as f:
+              json.dump({"version": "tepic-v1", "assets": assets}, f, indent=2)
+          PYEOF
+          cat catalogue.json
+
+      - name: Publish offline-packs release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: offline-packs
+          name: DivineDeck offline packs (Tepic)
+          body: |
+            Paquetes offline de Navegación para Tepic, Nayarit.
+            - valhalla_tiles.tar: grafo Valhalla (rutas sin internet).
+            - catalogue.json: SHA-256 y tamaños para verificar la descarga.
+            - tepic_places.json: solo si el asset no venía en el repo (la app
+              lo trae empaquetado en assets/; este archivo es la vía de
+              actualización sin reinstalar).
+            La app los descarga sola en la primera ejecución con internet.
+          files: |
+            valhalla_tiles.tar
+            catalogue.json
+            tepic_places.json
+          fail_on_unmatched_files: false

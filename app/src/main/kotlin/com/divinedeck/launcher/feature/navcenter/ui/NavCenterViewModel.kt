@@ -6,11 +6,20 @@ import android.speech.tts.TextToSpeech
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.divinedeck.launcher.feature.navcenter.data.ConnectivityMonitor
+import com.divinedeck.launcher.feature.navcenter.data.DivineDeckRouteProvider
+import com.divinedeck.launcher.feature.navcenter.data.MapPackState
 import com.divinedeck.launcher.feature.navcenter.data.NavLocationProvider
 import com.divinedeck.launcher.feature.navcenter.data.NavPlacesPreferences
 import com.divinedeck.launcher.feature.navcenter.data.NominatimApi
+import com.divinedeck.launcher.feature.navcenter.data.OfflineMapPackManager
+import com.divinedeck.launcher.feature.navcenter.data.OfflineNavConstants
+import com.divinedeck.launcher.feature.navcenter.data.OfflinePackDownloader
+import com.divinedeck.launcher.feature.navcenter.data.OfflineSearchData
+import com.divinedeck.launcher.feature.navcenter.data.OfflineValhallaRouter
 import com.divinedeck.launcher.feature.navcenter.data.OverpassApi
 import com.divinedeck.launcher.feature.navcenter.data.PhotonApi
+import com.divinedeck.launcher.feature.navcenter.data.RoutingPackState
 import com.divinedeck.launcher.feature.navcenter.domain.NavLatLng
 import com.divinedeck.launcher.feature.navcenter.domain.NavPlace
 import com.divinedeck.launcher.feature.navcenter.domain.PoiKind
@@ -24,7 +33,6 @@ import com.stadiamaps.ferrostar.core.http.OkHttpClientProvider
 import com.stadiamaps.ferrostar.core.isNavigating
 import com.stadiamaps.ferrostar.core.location.toUserLocation
 import com.stadiamaps.ferrostar.core.service.FerrostarForegroundServiceManager
-import com.stadiamaps.ferrostar.core.withJsonOptions
 import com.stadiamaps.ferrostar.googleplayservices.FusedNavigationLocationProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,7 +52,6 @@ import uniffi.ferrostar.TripState
 import uniffi.ferrostar.Waypoint
 import uniffi.ferrostar.WaypointAdvanceMode
 import uniffi.ferrostar.WaypointKind
-import uniffi.ferrostar.WellKnownRouteProvider
 import uniffi.ferrostar.stepAdvanceDistanceEntryAndExit
 import uniffi.ferrostar.stepAdvanceDistanceToEndOfStep
 import java.time.Duration
@@ -54,6 +61,10 @@ import java.util.Locale
  * Estado de la pantalla de Navegación (mapa embebido + guía por voz).
  * El mapa en sí lo dibuja Ferrostar (DynamicallyOrientingNavigationView);
  * aquí vive la lógica: búsqueda, POIs, Casa/Trabajo, rutas y voz.
+ *
+ * Modo offline (Tepic): con internet todo funciona como antes; sin
+ * internet el mapa usa el paquete descargado, la búsqueda y los POIs salen
+ * del JSON local, y las rutas las calcula Valhalla en el dispositivo.
  */
 data class NavCenterUiState(
     val selectedPlace: NavPlace? = null,
@@ -75,7 +86,11 @@ data class NavCenterUiState(
     val work: NavPlace? = null,
     val statusMessage: String? = null,
     val cameraTarget: NavLatLng? = null,
-    val cameraTargetNonce: Int = 0
+    val cameraTargetNonce: Int = 0,
+    val isOnline: Boolean = true,
+    val lastRouteOffline: Boolean = false,
+    val mapPackState: MapPackState = MapPackState.NotDownloaded,
+    val routingPackState: RoutingPackState = RoutingPackState.NotDownloaded
 )
 
 class NavCenterViewModel(application: Application) : AndroidViewModel(application) {
@@ -83,15 +98,33 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
     companion object {
         private const val TAG = "NavCenter"
         val TEPIC_CENTER = NavLatLng(latitude = 21.5, longitude = -104.9)
-        private const val VALHALLA_ENDPOINT = "https://valhalla1.openstreetmap.de/route"
         private const val GOOGLE_TTS_PACKAGE = "com.google.android.tts"
         private const val SEARCH_DEBOUNCE_MS = 350L
         private const val TAP_SELECT_RADIUS_METERS = 80.0
+
+        /** Sin internet y fuera del grafo de Tepic: no hay ruta posible. */
+        const val MSG_OFFLINE_OUT_OF_COVERAGE =
+            "Fuera del mapa offline de Tepic — conecta a internet para esta ruta"
+
+        /** Sin internet y sin paquete de rutas instalado. */
+        const val MSG_OFFLINE_PACK_MISSING =
+            "Descarga el paquete offline con internet"
+
+        /** Búsqueda / POIs sin internet y sin resultados locales. */
+        const val MSG_OFFLINE_SEARCH_EMPTY =
+            "Sin internet: solo lugares guardados y calles de Tepic"
     }
 
     private val appContext = application.applicationContext
     private val placesPrefs = NavPlacesPreferences(appContext)
     private val locationProvider = NavLocationProvider(appContext)
+
+    // --- Modo offline ---
+    private val connectivityMonitor = ConnectivityMonitor(appContext)
+    private val offlineSearchData = OfflineSearchData(appContext)
+    private val mapPackManager = OfflineMapPackManager(appContext)
+    private val packDownloader = OfflinePackDownloader(appContext)
+    private val offlineRouter = OfflineValhallaRouter(appContext)
 
     // --- Ferrostar: proveedor de ubicación, voz y servicio en primer plano ---
     private val ferrostarLocationProvider = FusedNavigationLocationProvider(appContext)
@@ -134,14 +167,21 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /**
-     * Núcleo Ferrostar: rutas con Valhalla (servidor gratuito FOSSGIS, sin
-     * llave), unidades en kilómetros e instrucciones en español. El desvío
-     * recalcula la ruta automáticamente (comportamiento por defecto).
+     * Núcleo Ferrostar con el proveedor de rutas propio: la petición es la
+     * misma de siempre (Valhalla, perfil auto, km, español) y solo cambia
+     * el transporte: servidor FOSSGIS con internet, motor Valhalla local
+     * sin internet. Así el recálculo por desvío también funciona offline.
      */
     val ferrostarCore: FerrostarCore by lazy {
+        val routeProvider = DivineDeckRouteProvider(
+            isOnline = { connectivityMonitor.isOnline.value },
+            offlineRouter = offlineRouter,
+            onRouteComputed = { offline ->
+                _uiState.update { it.copy(lastRouteOffline = offline) }
+            }
+        )
         val core = FerrostarCore(
-            wellKnownRouteProvider = WellKnownRouteProvider.Valhalla(VALHALLA_ENDPOINT, "auto")
-                .withJsonOptions(mapOf("units" to "kilometers", "language" to "es-ES")),
+            customRouteProvider = routeProvider,
             httpClient = OkHttpClientProvider(
                 OkHttpClient.Builder()
                     .callTimeout(Duration.ofSeconds(15))
@@ -200,14 +240,64 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             }
         }
+        // Conectividad y paquetes offline -> estado de la UI.
+        viewModelScope.launch {
+            connectivityMonitor.isOnline.collect { online ->
+                _uiState.update { it.copy(isOnline = online) }
+            }
+        }
+        viewModelScope.launch {
+            mapPackManager.state.collect { state ->
+                _uiState.update { it.copy(mapPackState = state) }
+            }
+        }
+        viewModelScope.launch {
+            packDownloader.state.collect { state ->
+                _uiState.update { it.copy(routingPackState = state) }
+            }
+        }
+        viewModelScope.launch {
+            mapPackManager.refreshState()
+            packDownloader.refreshState()
+            offlineSearchData.load()
+            // Primera ejecución con internet: descargar los paquetes
+            // offline en segundo plano para que el modo sin internet esté
+            // listo cuando Daniel lo necesite.
+            if (connectivityMonitor.isOnline.value) {
+                if (mapPackManager.state.value !is MapPackState.Ready) {
+                    launch { mapPackManager.ensurePack() }
+                }
+                if (!packDownloader.isInstalled()) {
+                    launch { packDownloader.downloadPack() }
+                }
+            }
+        }
     }
 
     override fun onCleared() {
         ttsObserver.shutdown()
+        connectivityMonitor.unregister()
+        offlineRouter.close()
         super.onCleared()
     }
 
-    // --- Búsqueda (Photon, con debounce) ---
+    /** Descarga manual de los paquetes offline (botón de la pantalla). */
+    fun downloadOfflinePacks() {
+        if (!connectivityMonitor.isOnline.value) {
+            _uiState.update { it.copy(statusMessage = MSG_OFFLINE_PACK_MISSING) }
+            return
+        }
+        viewModelScope.launch {
+            if (mapPackManager.state.value !is MapPackState.Ready) {
+                launch { mapPackManager.ensurePack() }
+            }
+            if (!packDownloader.isInstalled()) {
+                launch { packDownloader.downloadPack() }
+            }
+        }
+    }
+
+    // --- Búsqueda (Photon online; JSON local offline, con debounce) ---
 
     fun onSearchQueryChange(query: String) {
         _uiState.update { it.copy(searchQuery = query, searchError = null) }
@@ -220,6 +310,22 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
             delay(SEARCH_DEBOUNCE_MS)
             _uiState.update { it.copy(isSearching = true, searchError = null) }
             val trimmed = query.trim()
+            if (!connectivityMonitor.isOnline.value) {
+                val loaded = offlineSearchData.load()
+                val results = if (loaded) {
+                    offlineSearchData.search(trimmed, _uiState.value.currentLocation)
+                } else {
+                    emptyList()
+                }
+                _uiState.update {
+                    it.copy(
+                        searchResults = results,
+                        isSearching = false,
+                        searchError = if (results.isEmpty()) MSG_OFFLINE_SEARCH_EMPTY else null
+                    )
+                }
+                return@launch
+            }
             // Photon primero; si lanza (incluido su timeout de 8 s), un solo
             // intento de respaldo con Nominatim (1 req/s, no autocompletado).
             val photonResults: List<NavPlace>? = try {
@@ -297,7 +403,13 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
         selectPlace(place, moveCamera = false)
         viewModelScope.launch {
             _uiState.update { it.copy(isResolvingAddress = true) }
-            val address = withContext(Dispatchers.IO) { NominatimApi.reverse(point) }
+            val address = if (!connectivityMonitor.isOnline.value) {
+                offlineSearchData.load()
+                offlineSearchData.nearestStreet(point)
+                    ?.let { "Cerca de $it" }
+            } else {
+                withContext(Dispatchers.IO) { NominatimApi.reverse(point) }
+            }
             _uiState.update {
                 if (it.selectedPlace?.id == place.id) {
                     it.copy(selectedAddress = address, isResolvingAddress = false)
@@ -324,7 +436,7 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
         _uiState.update { it.copy(selectedPlace = null, selectedAddress = null, routeError = null) }
     }
 
-    // --- Puntos de interés (Overpass: gasolineras y talleres) ---
+    // --- Puntos de interés (Overpass online; JSON local offline) ---
 
     fun togglePois(kind: PoiKind) {
         val current = _uiState.value
@@ -337,6 +449,18 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
                 it.copy(isLoadingPois = true, activePoiKind = kind, poiResults = emptyList())
             }
             val center = current.currentLocation ?: TEPIC_CENTER
+            if (!connectivityMonitor.isOnline.value) {
+                offlineSearchData.load()
+                val results = offlineSearchData.nearbyPois(kind, center)
+                _uiState.update {
+                    it.copy(
+                        poiResults = results,
+                        isLoadingPois = false,
+                        statusMessage = if (results.isEmpty()) MSG_OFFLINE_SEARCH_EMPTY else null
+                    )
+                }
+                return@launch
+            }
             val results = try {
                 withContext(Dispatchers.IO) { OverpassApi.nearby(kind, center) }
             } catch (e: Exception) {
@@ -393,7 +517,7 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    // --- Rutas y navegación guiada (Ferrostar + Valhalla FOSSGIS) ---
+    // --- Rutas y navegación guiada (Ferrostar + Valhalla) ---
 
     fun startNavigation(place: NavPlace) {
         viewModelScope.launch {
@@ -405,6 +529,26 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
                 }
                 val userLocation = origin?.toUserLocation()
                     ?: throw IllegalStateException("sin ubicación GPS todavía")
+                // Sin internet, la ruta solo existe si el paquete está
+                // instalado y origen y destino están dentro del grafo.
+                if (!connectivityMonitor.isOnline.value) {
+                    val engineReady = withContext(Dispatchers.IO) {
+                        packDownloader.isInstalled() && offlineRouter.ensureEngine() != null
+                    }
+                    if (!engineReady) {
+                        throw IllegalStateException(MSG_OFFLINE_PACK_MISSING)
+                    }
+                    val dest = place.latLng
+                    val originLatLng = NavLatLng(
+                        latitude = userLocation.coordinates.lat,
+                        longitude = userLocation.coordinates.lng
+                    )
+                    if (!OfflineNavConstants.isInsideRouteBounds(dest.latitude, dest.longitude) ||
+                        !OfflineNavConstants.isInsideRouteBounds(originLatLng.latitude, originLatLng.longitude)
+                    ) {
+                        throw IllegalStateException(MSG_OFFLINE_OUT_OF_COVERAGE)
+                    }
+                }
                 val routes = withContext(Dispatchers.IO) {
                     ferrostarCore.getRoutes(
                         userLocation,
@@ -431,10 +575,17 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "No se pudo calcular la ruta: ${e.message}", e)
+                val message = e.message
+                val userMessage = when {
+                    message == MSG_OFFLINE_PACK_MISSING -> MSG_OFFLINE_PACK_MISSING
+                    message == MSG_OFFLINE_OUT_OF_COVERAGE -> MSG_OFFLINE_OUT_OF_COVERAGE
+                    message?.contains("paquete de rutas offline") == true -> MSG_OFFLINE_PACK_MISSING
+                    else -> "No se pudo calcular la ruta (${e.message ?: "sin GPS o sin internet"}). Inténtalo de nuevo."
+                }
                 _uiState.update {
                     it.copy(
                         isCalculatingRoute = false,
-                        routeError = "No se pudo calcular la ruta (${e.message ?: "sin GPS o sin internet"}). Inténtalo de nuevo."
+                        routeError = userMessage
                     )
                 }
             }

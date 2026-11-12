@@ -17,6 +17,10 @@
     <!-- Permiso de red para carga de carátulas y metadatos remotos (Coil 3 / BitChord) -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Detección de conectividad para el modo offline de Navegación
+         (ConnectivityManager: solo cuenta la red validada) -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <!-- Permisos para Servicio Multimedia Interno Media3 y Reproducción de Audio Local -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
