@@ -472,6 +472,8 @@ private class ChevyGlbOpenGLRenderer(
         GLES30.glDepthMask(true)
         for (mesh in gpuMeshes) {
             if (!mesh.material.isBlend) {
+                // Rojo Sport: sin la sombra falsa del modelo 3D
+                if (hideFloorShadow && mesh.materialIndex == UNDERBODY_SHADOW_MATERIAL_INDEX) continue
                 drawSubMesh(mesh, eyeX, eyeY, eyeZ, effectsParams)
             }
         }
@@ -481,6 +483,7 @@ private class ChevyGlbOpenGLRenderer(
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
         for (mesh in gpuMeshes) {
             if (mesh.material.isBlend) {
+                if (hideFloorShadow && mesh.materialIndex == UNDERBODY_SHADOW_MATERIAL_INDEX) continue
                 drawSubMesh(mesh, eyeX, eyeY, eyeZ, effectsParams)
             }
         }
@@ -846,6 +849,11 @@ private class ChevyGlbOpenGLRenderer(
     }
 
     companion object {
+        // Índice del material "ChevyC2_UnderbodyShadow" en chevy_c2_2009.glb:
+        // la malla de sombra falsa bajo el auto (albedo 0.04, casi negra).
+        // En Rojo Sport no se dibuja (ver hideFloorShadow).
+        private const val UNDERBODY_SHADOW_MATERIAL_INDEX = 10
+
         private const val BACKGROUND_VERTEX_SHADER = """#version 300 es
             // Triángulo a pantalla completa vía gl_VertexID (sin VBO).
             void main() {
