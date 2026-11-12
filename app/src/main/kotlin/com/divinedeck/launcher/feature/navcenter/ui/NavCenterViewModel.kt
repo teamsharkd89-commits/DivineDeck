@@ -20,7 +20,7 @@ import com.stadiamaps.ferrostar.core.AndroidTtsStatusListener
 import com.stadiamaps.ferrostar.core.DefaultNavigationViewModel
 import com.stadiamaps.ferrostar.core.FerrostarCore
 import com.stadiamaps.ferrostar.core.NavigationViewModel
-import com.stadiamaps.ferrostar.core.http.toOkHttpClientProvider
+import com.stadiamaps.ferrostar.core.http.OkHttpClientProvider
 import com.stadiamaps.ferrostar.core.isNavigating
 import com.stadiamaps.ferrostar.core.location.toUserLocation
 import com.stadiamaps.ferrostar.core.service.FerrostarForegroundServiceManager
@@ -141,10 +141,11 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
         val core = FerrostarCore(
             wellKnownRouteProvider = WellKnownRouteProvider.Valhalla(VALHALLA_ENDPOINT, "auto")
                 .withJsonOptions(mapOf("units" to "kilometers", "language" to "es-ES")),
-            httpClient = OkHttpClient.Builder()
-                .callTimeout(Duration.ofSeconds(15))
-                .build()
-                .toOkHttpClientProvider(),
+            httpClient = OkHttpClientProvider(
+                OkHttpClient.Builder()
+                    .callTimeout(Duration.ofSeconds(15))
+                    .build()
+            ),
             locationProvider = ferrostarLocationProvider,
             navigationControllerConfig = NavigationControllerConfig(
                 WaypointAdvanceMode.WaypointWithinRange(100.0),
