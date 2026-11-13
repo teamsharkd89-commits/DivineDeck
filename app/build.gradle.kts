@@ -156,6 +156,12 @@ dependencies {
   // com.github.k2-fsa:sherpa-onnx:v2.0.1. Un cuarto segmento haría
   // que Gradle leyera "sherpa-onnx" como versión (run 37 falló por eso).
   // Sin dependencias adicionales: el AAR ya trae ONNX Runtime y JNI.
-  implementation("com.github.k2-fsa:sherpa-onnx:v2.0.1")
+  // El POM del AAR declara además sherpa-onnx-jvm, pero el AAR ya
+  // incluye esas mismas clases com.k2fsa.sherpa.onnx.*: sin excluirlo,
+  // :app:checkDebugDuplicateClasses falla con ~190 clases duplicadas
+  // (run 38). Se excluye solo ese módulo; el resto de transitivas queda.
+  implementation("com.github.k2-fsa:sherpa-onnx:v2.0.1") {
+    exclude(group = "com.github.k2-fsa.sherpa-onnx", module = "sherpa-onnx-jvm")
+  }
 
 }
