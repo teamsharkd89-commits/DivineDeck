@@ -648,6 +648,9 @@ fun SettingsScreen(
                             }
                             // Estado del motor (solo con permiso concedido).
                             if (isLowriderEnabled && lowriderAudioGrantedNow) {
+                                // Copia local: lowriderLastError es una propiedad delegada
+                                // (by collectAsState) y Kotlin no permite smart cast sobre ella.
+                                val lastError = lowriderLastError
                                 when (lowriderMode) {
                                     LowriderBeatEngine.Mode.BEAT -> {
                                         Text(
@@ -662,23 +665,23 @@ fun SettingsScreen(
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = palette.statusPositive
                                         )
-                                        if (lowriderLastError != null) {
+                                        if (lastError != null) {
                                             Text(
-                                                text = lowriderLastError,
+                                                text = lastError,
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = palette.textSecondary
                                             )
                                         }
                                     }
                                     LowriderBeatEngine.Mode.STOPPED -> {
-                                        if (lowriderLastError != null) {
+                                        if (lastError != null) {
                                             Text(
                                                 text = "No se pudo escuchar la música en este dispositivo",
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 color = palette.textSecondary
                                             )
                                             Text(
-                                                text = lowriderLastError,
+                                                text = lastError,
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = palette.textSecondary
                                             )
