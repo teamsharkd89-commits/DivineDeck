@@ -62,7 +62,9 @@ import com.divinedeck.launcher.feature.music.data.MediaControllerRepositoryImpl
 import com.divinedeck.launcher.feature.music.ui.MusicCenterDestination
 import com.divinedeck.launcher.feature.music.ui.MusicCenterScreen
 import com.divinedeck.launcher.feature.navcenter.data.NavigationLauncherRepositoryImpl
+import com.divinedeck.launcher.feature.navcenter.data.SharedPreferencesQuickPlacesRepository
 import com.divinedeck.launcher.feature.navcenter.ui.NavCenterScreen
+import com.divinedeck.launcher.feature.voice.data.VoiceAssistant
 import com.divinedeck.launcher.feature.settings.data.SettingsRepositoryImpl
 import com.divinedeck.launcher.feature.settings.model.OperatingMode
 import com.divinedeck.launcher.feature.settings.ui.SettingsScreen
@@ -87,6 +89,12 @@ class MainActivity : ComponentActivity() {
     private val mediaRepository by lazy { MediaControllerRepositoryImpl(applicationContext) }
     private val widgetManager by lazy { AndroidWidgetHostManagerImpl(applicationContext) }
     private val navRepository by lazy { NavigationLauncherRepositoryImpl() }
+    // Asistente de voz (versión botón): usa el `quickPlacesRepository`
+    // de "Mis lugares" para resolver los destinos por voz.
+    private val voiceAssistant by lazy {
+        VoiceAssistant(applicationContext, mediaRepository, navRepository, quickPlacesRepository)
+    }
+    private val quickPlacesRepository by lazy { SharedPreferencesQuickPlacesRepository(applicationContext) }
     private val appRepository by lazy { AppLauncherRepositoryImpl() }
     private val settingsRepository by lazy { SettingsRepositoryImpl(applicationContext) }
     private val launcherExitManager by lazy { LauncherExitManager(this) }
@@ -316,13 +324,15 @@ class MainActivity : ComponentActivity() {
                                             onGpsStatusClick = requestLocationPermissionOrSettings,
                                             layout = cockpitLayout,
                                             currentRoute = currentRoute,
-                                            lowriderEnabled = isLowriderEnabled
+                                            lowriderEnabled = isLowriderEnabled,
+                                            voiceAssistant = voiceAssistant
                                         )
                                         DivineDeckRoute.MUSIC -> {
                                             // Conmutado por AnimatedContent superior en modo inmersivo
                                         }
                                         DivineDeckRoute.NAVIGATION -> NavCenterScreen(
-                                            navRepository = navRepository
+                                            navRepository = navRepository,
+                                            quickPlacesRepository = quickPlacesRepository
                                         )
                                         DivineDeckRoute.GARAGE_3D -> Garage3DScreen(
                                             chevyRenderer = chevy3DRenderer,
@@ -438,6 +448,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         mediaRepository.disconnect()
+        voiceAssistant.shutdown()
         widgetManager.clearHostViews()
         super.onDestroy()
     }

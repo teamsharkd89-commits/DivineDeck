@@ -12,4 +12,10 @@ interface NavigationLauncherRepository {
     fun launchGoogleMaps(context: Context): Boolean
     fun launchNavigationTo(context: Context, queryOrAddress: String): Boolean
     fun isGoogleMapsInstalled(context: Context): Boolean
+    /**
+     * Búsqueda libre en Google Maps (sin ruta directa): abre Maps con la
+     * consulta. La usa el asistente de voz cuando el lugar dicho no es un
+     * destino conocido.
+     */
+    fun launchMapsSearch(context: Context, query: String): Boolean
 }

@@ -43,6 +43,30 @@ class NavigationLauncherRepositoryImpl : NavigationLauncherRepository {
         }
     }
 
+    override fun launchMapsSearch(context: Context, query: String): Boolean {
+        return try {
+            val uri = Uri.parse("geo:0,0?q=${Uri.encode(query)}")
+            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                setPackage("com.google.android.apps.maps")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            true
+        } catch (_: Exception) {
+            // Fallback: mismo URI sin forzar el paquete de Google Maps.
+            try {
+                val fallbackUri = Uri.parse("geo:0,0?q=${Uri.encode(query)}")
+                val fallbackIntent = Intent(Intent.ACTION_VIEW, fallbackUri).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(fallbackIntent)
+                true
+            } catch (_: Exception) {
+                false
+            }
+        }
+    }
+
     override fun isGoogleMapsInstalled(context: Context): Boolean {
         return try {
             context.packageManager.getPackageInfo("com.google.android.apps.maps", 0) != null

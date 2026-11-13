@@ -28,17 +28,29 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocalGasStation
 import androidx.compose.material.icons.filled.Navigation
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Work
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,6 +74,8 @@ import com.divinedeck.launcher.core.designsystem.components.AutomotiveSecondaryB
 import com.divinedeck.launcher.core.designsystem.theme.DivineDeckPalette
 import com.divinedeck.launcher.core.designsystem.theme.DivineDeckTheme
 import com.divinedeck.launcher.feature.navcenter.domain.NavigationLauncherRepository
+import com.divinedeck.launcher.feature.navcenter.domain.QuickPlace
+import com.divinedeck.launcher.feature.navcenter.domain.QuickPlacesRepository
 import com.divinedeck.launcher.feature.navcenter.service.ReturnHomeFloatingService
 
 /**
@@ -77,11 +91,18 @@ import com.divinedeck.launcher.feature.navcenter.service.ReturnHomeFloatingServi
 @Composable
 fun NavCenterScreen(
     navRepository: NavigationLauncherRepository,
+    quickPlacesRepository: QuickPlacesRepository,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val palette = DivineDeckTheme.palette
     val lifecycleOwner = LocalLifecycleOwner.current
+
+    // Lugares guardados por el usuario ("Mis lugares").
+    val places by quickPlacesRepository.places.collectAsState()
+    var showPlaceDialog by remember { mutableStateOf(false) }
+    var editingPlace by remember { mutableStateOf<QuickPlace?>(null) }
+    var placeToDelete by remember { mutableStateOf<QuickPlace?>(null) }
 
     // El permiso de superposición puede concederse fuera de esta pantalla:
     // se re-comprueba cada vez que la pantalla vuelve a primer plano para
@@ -361,9 +382,206 @@ fun NavCenterScreen(
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // MIS LUGARES: destinos configurables por el usuario.
+                Text(
+                    text = "MIS LUGARES",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = palette.textPrimary
+                )
+
+                if (places.isEmpty()) {
+                    Text(
+                        text = "Aún no tienes lugares guardados. Agrega uno, por ejemplo: Casa de Migue",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = palette.textSecondary
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        places.forEach { place ->
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = palette.elevatedSurface,
+                                border = BorderStroke(1.dp, palette.borderSubtle),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { navRepository.launchNavigationTo(context, place.address) }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Place,
+                                        contentDescription = null,
+                                        tint = palette.accent,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(place.name, style = MaterialTheme.typography.titleMedium, color = palette.textPrimary)
+                                        Text(place.address, style = MaterialTheme.typography.bodyMedium, color = palette.textSecondary)
+                                    }
+                                    IconButton(onClick = {
+                                        editingPlace = place
+                                        showPlaceDialog = true
+                                    }) {
+                                        Icon(
+                                            Icons.Default.Edit,
+                                            contentDescription = "Editar ${place.name}",
+                                            tint = palette.textSecondary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    IconButton(onClick = { placeToDelete = place }) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = "Eliminar ${place.name}",
+                                            tint = palette.statusAlert,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                AutomotiveSecondaryButton(
+                    onClick = {
+                        editingPlace = null
+                        showPlaceDialog = true
+                    }
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, tint = palette.accent)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Agregar lugar", color = palette.textPrimary)
+                }
             }
         }
     }
+
+    // Diálogo para agregar / editar un lugar.
+    if (showPlaceDialog) {
+        QuickPlaceEditDialog(
+            place = editingPlace,
+            onDismiss = { showPlaceDialog = false },
+            onSave = { name, address ->
+                if (editingPlace == null) {
+                    quickPlacesRepository.addPlace(name, address)
+                } else {
+                    quickPlacesRepository.updatePlace(editingPlace!!.id, name, address)
+                }
+                showPlaceDialog = false
+            }
+        )
+    }
+
+    // Confirmación para eliminar un lugar.
+    val deletingPlace = placeToDelete
+    if (deletingPlace != null) {
+        AlertDialog(
+            onDismissRequest = { placeToDelete = null },
+            title = { Text("¿Eliminar lugar?", color = palette.textPrimary) },
+            text = {
+                Text(
+                    text = "Se eliminará \"${deletingPlace.name}\" de tus lugares guardados.",
+                    color = palette.textSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        quickPlacesRepository.deletePlace(deletingPlace.id)
+                        placeToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = palette.statusAlert)
+                ) {
+                    Text("Eliminar", color = palette.onAccent)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { placeToDelete = null }) {
+                    Text("Cancelar", color = palette.textPrimary)
+                }
+            },
+            containerColor = palette.elevatedSurface
+        )
+    }
+}
+
+/**
+ * Diálogo para agregar un lugar nuevo o editar uno existente.
+ * `place == null` significa agregar; en ese caso los campos empiezan vacíos.
+ * Guardar queda desactivado hasta que nombre y dirección tengan texto.
+ */
+@Composable
+private fun QuickPlaceEditDialog(
+    place: QuickPlace?,
+    onDismiss: () -> Unit,
+    onSave: (name: String, address: String) -> Unit
+) {
+    val palette = DivineDeckTheme.palette
+    var name by remember(place) { mutableStateOf(place?.name ?: "") }
+    var address by remember(place) { mutableStateOf(place?.address ?: "") }
+    val canSave = name.isNotBlank() && address.isNotBlank()
+    val textFieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = palette.textPrimary,
+        unfocusedTextColor = palette.textPrimary,
+        focusedBorderColor = palette.accent,
+        unfocusedBorderColor = palette.border,
+        focusedContainerColor = palette.surface,
+        unfocusedContainerColor = palette.surface
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = if (place == null) "Agregar lugar" else "Editar lugar",
+                color = palette.textPrimary
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nombre", color = palette.textSecondary) },
+                    placeholder = { Text("Casa de Migue", color = palette.textSecondary) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = textFieldColors
+                )
+                OutlinedTextField(
+                    value = address,
+                    onValueChange = { address = it },
+                    label = { Text("Dirección", color = palette.textSecondary) },
+                    placeholder = { Text("Calle, número, colonia, Tepic", color = palette.textSecondary) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = textFieldColors
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(name.trim(), address.trim()) },
+                enabled = canSave,
+                colors = ButtonDefaults.buttonColors(containerColor = palette.accent)
+            ) {
+                Text("Guardar", color = palette.onAccent)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancelar", color = palette.textPrimary)
+            }
+        },
+        containerColor = palette.elevatedSurface
+    )
 }
 
 /**
