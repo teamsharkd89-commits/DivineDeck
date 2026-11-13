@@ -186,16 +186,27 @@ class MainActivity : ComponentActivity() {
             // sistema, sesión 0) solo vive mientras el ajuste está activo Y el
             // permiso RECORD_AUDIO está concedido. Sin permiso no se arranca y
             // el Chevy simplemente no brinca; nunca se graba audio.
-            LaunchedEffect(isLowriderEnabled) {
+            //
+            // Reintento al volver a la app: el ajuste lee el valor ACTUAL del
+            // flujo (settingsRepository.isLowriderEnabled.value) en vez del
+            // estado coleccionado, así el observador de ciclo de vida — que se
+            // registra una sola vez — nunca ve un valor obsoleto del interruptor.
+            // Si Daniel concede el permiso en los Ajustes del sistema y vuelve,
+            // ON_START / ON_RESUME reintentan el arranque sin tocar el interruptor.
+            val tryStartLowrider: () -> Unit = {
                 val audioGranted = ContextCompat.checkSelfPermission(
                     context,
                     Manifest.permission.RECORD_AUDIO
                 ) == PackageManager.PERMISSION_GRANTED
-                if (isLowriderEnabled && audioGranted) {
+                if (settingsRepository.isLowriderEnabled.value && audioGranted) {
                     LowriderBeatEngine.start(context.applicationContext)
                 } else {
                     LowriderBeatEngine.stop()
                 }
+            }
+
+            LaunchedEffect(isLowriderEnabled) {
+                tryStartLowrider()
             }
 
             // Ciclo de vida: rastreo GPS activo únicamente mientras la pantalla y app estén activas
@@ -208,9 +219,15 @@ class MainActivity : ComponentActivity() {
                             gpsRepository.onPermissionStatusChanged(fine || coarse)
                             gpsRepository.startTracking()
                             widgetManager.startListening()
+                            // Lowrider: reintento al volver a la app (permiso
+                            // concedido en Ajustes del sistema).
+                            tryStartLowrider()
                         }
                         Lifecycle.Event.ON_RESUME -> {
                             gpsRepository.refreshProviderStatus()
+                            // Lowrider: reintento al volver del sistema de
+                            // permisos sin tocar el interruptor.
+                            tryStartLowrider()
                         }
                         Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
                             gpsRepository.stopTracking()

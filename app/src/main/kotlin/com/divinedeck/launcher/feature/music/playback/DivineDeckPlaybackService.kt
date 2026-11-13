@@ -34,6 +34,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import com.divinedeck.launcher.MainActivity
+import com.divinedeck.launcher.feature.garage3d.domain.model.LowriderBeatEngine
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -119,6 +120,17 @@ class DivineDeckPlaybackService : MediaLibraryService() {
         @Volatile
         var activeAudioEnergyProcessor: AudioEnergyProcessor? = null
             internal set
+
+        /**
+         * Sesión de audio del ExoPlayer de BitChord (0 = reproductor aún no
+         * creado o sin sesión asignada). La lee el motor Lowrider para
+         * intentar el Visualizer sobre la sesión real del reproductor cuando
+         * la mezcla del sistema (sesión 0) falla en el dispositivo. Se
+         * actualiza al crear el reproductor y cada vez que cambia la sesión.
+         */
+        @Volatile
+        var playbackAudioSessionId: Int = 0
+            private set
     }
 
     private var serviceScope: CoroutineScope? = null
@@ -202,6 +214,14 @@ class DivineDeckPlaybackService : MediaLibraryService() {
                 handlePlayerError(error, exoPlayer)
             }
 
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                // La sesión se asigna al crear el AudioTrack; publicarla aquí
+                // cubre el caso en que aún era 0 al construir el reproductor.
+                // Si el Lowrider está en modo CLOCK, intenta subir a BEAT.
+                playbackAudioSessionId = audioSessionId
+                LowriderBeatEngine.setPlaybackSessionId(audioSessionId)
+            }
+
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     exoPlayer.currentMediaItem?.mediaId?.let { recoveries.remove(it) }
@@ -234,6 +254,11 @@ class DivineDeckPlaybackService : MediaLibraryService() {
         })
 
         player = exoPlayer
+        // Publicar la sesión de audio del reproductor para el motor Lowrider
+        // (puede ser 0 hasta que se cree el AudioTrack; el listener
+        // onAudioSessionIdChanged la actualiza en cuanto se asigna).
+        playbackAudioSessionId = exoPlayer.audioSessionId
+        LowriderBeatEngine.setPlaybackSessionId(exoPlayer.audioSessionId)
         watchSleepTimer(exoPlayer)
         watchDspSettings()
         watchPlaybackSettings(exoPlayer)
@@ -523,6 +548,7 @@ class DivineDeckPlaybackService : MediaLibraryService() {
             mediaLibrarySession = null
         }
         player = null
+        playbackAudioSessionId = 0
         AudioCache.release()
         super.onDestroy()
     }

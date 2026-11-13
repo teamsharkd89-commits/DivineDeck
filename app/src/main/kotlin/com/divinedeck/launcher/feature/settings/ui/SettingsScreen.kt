@@ -40,6 +40,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,6 +68,7 @@ import com.divinedeck.launcher.core.designsystem.theme.ensureReadableAccent
 import com.divinedeck.launcher.feature.garage3d.domain.model.LowriderBeatEngine
 import com.divinedeck.launcher.feature.settings.domain.SettingsRepository
 import com.divinedeck.launcher.feature.settings.model.OperatingMode
+import kotlinx.coroutines.delay
 
 /**
  * Pantalla de Ajustes y Sistema de Personalización de Temas (Fase 02.1 + 06.11).
@@ -98,6 +100,9 @@ fun SettingsScreen(
         if (granted) {
             lowriderPermissionNote = false
             settingsRepository.setLowriderEnabled(true)
+            // setLowriderEnabled(true) es no-op si el interruptor ya estaba
+            // en ON: el arranque directo evita que el motor se quede parado.
+            LowriderBeatEngine.start(context.applicationContext)
         } else {
             lowriderPermissionNote = true
             settingsRepository.setLowriderEnabled(false)
@@ -107,6 +112,24 @@ fun SettingsScreen(
         context,
         Manifest.permission.RECORD_AUDIO
     ) == PackageManager.PERMISSION_GRANTED
+
+    // Estado vivo del motor Lowrider: mode y lastError son StateFlow y se
+    // observan directamente; isRunning es @Volatile y se refleja en mode.
+    // El permiso se revalida cada 500 ms: si se concede en los Ajustes del
+    // sistema y se vuelve a la app, la nota desaparece sola.
+    val lowriderMode by LowriderBeatEngine.mode.collectAsState()
+    val lowriderLastError by LowriderBeatEngine.lastError.collectAsState()
+    val lowriderRunning = lowriderMode != LowriderBeatEngine.Mode.STOPPED
+    var lowriderAudioGrantedNow by remember { mutableStateOf(lowriderAudioGranted) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            lowriderAudioGrantedNow = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+            delay(500)
+        }
+    }
 
     Row(
         modifier = modifier
@@ -586,7 +609,7 @@ fun SettingsScreen(
                                         if (!wantOn) {
                                             lowriderPermissionNote = false
                                             settingsRepository.setLowriderEnabled(false)
-                                        } else if (lowriderAudioGranted) {
+                                        } else if (lowriderAudioGrantedNow) {
                                             settingsRepository.setLowriderEnabled(true)
                                         } else {
                                             lowriderPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -598,7 +621,7 @@ fun SettingsScreen(
                                     )
                                 )
                             }
-                            if (lowriderPermissionNote || (isLowriderEnabled && !lowriderAudioGranted)) {
+                            if (lowriderPermissionNote || (isLowriderEnabled && !lowriderAudioGrantedNow)) {
                                 Text(
                                     text = "Activa el permiso de micrófono/audio para usar el Lowrider",
                                     style = MaterialTheme.typography.bodyMedium,
@@ -623,12 +646,63 @@ fun SettingsScreen(
                                     Text("Abrir ajustes de la app")
                                 }
                             }
-                            if (isLowriderEnabled && lowriderAudioGranted && LowriderBeatEngine.lastError != null) {
-                                Text(
-                                    text = "No se pudo escuchar la música en este dispositivo",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = palette.textSecondary
-                                )
+                            // Estado del motor (solo con permiso concedido).
+                            if (isLowriderEnabled && lowriderAudioGrantedNow) {
+                                when (lowriderMode) {
+                                    LowriderBeatEngine.Mode.BEAT -> {
+                                        Text(
+                                            text = "Escuchando el beat",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = palette.statusPositive
+                                        )
+                                    }
+                                    LowriderBeatEngine.Mode.CLOCK -> {
+                                        Text(
+                                            text = "Modo ritmo: el carro brinca a ritmo fijo mientras suena música",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = palette.statusPositive
+                                        )
+                                        if (lowriderLastError != null) {
+                                            Text(
+                                                text = lowriderLastError,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = palette.textSecondary
+                                            )
+                                        }
+                                    }
+                                    LowriderBeatEngine.Mode.STOPPED -> {
+                                        if (lowriderLastError != null) {
+                                            Text(
+                                                text = "No se pudo escuchar la música en este dispositivo",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = palette.textSecondary
+                                            )
+                                            Text(
+                                                text = lowriderLastError,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = palette.textSecondary
+                                            )
+                                        } else {
+                                            Text(
+                                                text = "El motor está detenido",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = palette.textSecondary
+                                            )
+                                        }
+                                    }
+                                }
+                                if (!lowriderRunning) {
+                                    AutomotiveSecondaryButton(
+                                        onClick = {
+                                            LowriderBeatEngine.start(context.applicationContext)
+                                        },
+                                        borderColor = palette.accent,
+                                        contentColor = palette.accent,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Reintentar")
+                                    }
+                                }
                             }
                         }
                     }
