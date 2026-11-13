@@ -259,7 +259,8 @@ private fun VoiceMicButton(
         }
     }
 
-    val isListening = voiceState is VoiceState.Listening
+    val isListening = voiceState is VoiceState.Listening ||
+        voiceState is VoiceState.DownloadingModel
     val pulse = rememberInfiniteTransition(label = "voiceMicPulse")
     val pulseScale by pulse.animateFloat(
         initialValue = 1f,
@@ -273,6 +274,11 @@ private fun VoiceMicButton(
 
     val statusText = when (val s = voiceState) {
         VoiceState.Listening -> "Escuchando…"
+        is VoiceState.DownloadingModel -> if (s.percent >= 0) {
+            "Descargando modelo de voz… ${s.percent}%"
+        } else {
+            "Descargando modelo de voz…"
+        }
         is VoiceState.Heard -> if (showStatus) "Escuché: ${s.text}" else null
         is VoiceState.Error -> if (showStatus) s.message else null
         VoiceState.Idle -> null

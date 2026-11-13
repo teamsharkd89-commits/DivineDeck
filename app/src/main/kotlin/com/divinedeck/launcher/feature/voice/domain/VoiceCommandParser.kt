@@ -16,8 +16,18 @@ sealed interface VoiceCommand {
     data object Previous : VoiceCommand
     data object Pause : VoiceCommand
     data object Play : VoiceCommand
-    /** "pon X" / "reproduce X" — X es la búsqueda de la canción. */
+    /** "pon X" / "reproduce X" — X es la búsqueda de la canción. La ejecución
+     * busca primero en la biblioteca local (playlist con ese nombre, canción
+     * local, artista local) y solo si no hay nada usa la búsqueda online. */
     data class PlaySong(val query: String) : VoiceCommand
+    /** "pon la playlist X" / "reproduce la playlist X" — X es el nombre. */
+    data class PlayPlaylist(val name: String) : VoiceCommand
+    /** "pon música de X" / "pon canciones de X" — X es el artista. */
+    data class PlayArtist(val name: String) : VoiceCommand
+    /** "pon mis descargas" / "música descargada". */
+    data object PlayDownloads : VoiceCommand
+    /** "pon mis canciones" / "música local". */
+    data object PlayLocalLibrary : VoiceCommand
     data object Unknown : VoiceCommand
 }
 
@@ -73,6 +83,80 @@ object VoiceCommandParser {
         // --- Música: pausa ---
         if (text == "pausa" || text == "pausar") {
             return VoiceCommand.Pause
+        }
+
+        // --- Música: descargas (ANTES del "pon " genérico) ---
+        if (text == "pon mis descargas" ||
+            text == "reproduce mis descargas" ||
+            text == "pon musica descargada" ||
+            text == "reproduce musica descargada" ||
+            text == "pon mis canciones descargadas" ||
+            text == "musica descargada" ||
+            text == "mis descargas" ||
+            text == "descargas"
+        ) {
+            return VoiceCommand.PlayDownloads
+        }
+
+        // --- Música: biblioteca local (ANTES del "pon " genérico) ---
+        if (text == "pon mis canciones" ||
+            text == "reproduce mis canciones" ||
+            text == "pon musica local" ||
+            text == "reproduce musica local" ||
+            text == "musica local" ||
+            text == "pon mi musica" ||
+            text == "reproduce mi musica" ||
+            text == "mi musica" ||
+            text == "mis canciones"
+        ) {
+            return VoiceCommand.PlayLocalLibrary
+        }
+
+        // --- Música: playlist por nombre (ANTES del "pon " genérico,
+        // porque "pon la playlist X" también empieza por "pon "). ---
+        val playlistPrefixes = listOf(
+            "pon la playlist ",
+            "reproduce la playlist ",
+            "pon playlist ",
+            "reproduce playlist "
+        )
+        for (prefix in playlistPrefixes) {
+            if (text.startsWith(prefix)) {
+                val name = text.removePrefix(prefix).trim()
+                return if (name.isNotBlank()) VoiceCommand.PlayPlaylist(name)
+                else VoiceCommand.Unknown
+            }
+        }
+
+        // --- Música: artista ("pon musica de X", "pon canciones de X"). ---
+        val artistPrefixes = listOf(
+            "pon canciones de ",
+            "reproduce canciones de ",
+            "pon musica de ",
+            "reproduce musica de ",
+            "pon canciones del ",
+            "reproduce canciones del "
+        )
+        for (prefix in artistPrefixes) {
+            if (text.startsWith(prefix)) {
+                val name = text.removePrefix(prefix).trim()
+                return if (name.isNotBlank()) VoiceCommand.PlayArtist(name)
+                else VoiceCommand.Unknown
+            }
+        }
+
+        // Frases con prefijo de playlist/artista pero sin nombre: no caen
+        // en el "pon X" genérico (buscarían "la playlist" como canción).
+        if (text == "pon la playlist" ||
+            text == "reproduce la playlist" ||
+            text == "pon playlist" ||
+            text == "reproduce playlist" ||
+            text == "pon musica de" ||
+            text == "reproduce musica de" ||
+            text == "pon canciones de" ||
+            text == "reproduce canciones de"
+        ) {
+            return VoiceCommand.Unknown
         }
 
         // --- Música: poner una canción (ANTES de la regla "reproduce" solo,

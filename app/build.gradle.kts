@@ -140,4 +140,13 @@ dependencies {
   implementation(libs.ktor.serialization.kotlinx.json)
   implementation(libs.kotlinx.serialization.json)
 
+  // Vosk: reconocimiento de voz sin internet (offline, gratis, sin clave
+  // ni cuenta). El @aar es OBLIGATORIO: la coordenada simple resuelve a
+  // un JAR sin las librerías nativas (libvosk.so) y compila pero crashea
+  // en runtime. JNA es la dependencia nativa que usa libvosk.
+  // Se declaran con coordenadas directas (no en el catálogo) justo por
+  // el sufijo @aar, que el catálogo de versiones no puede expresar.
+  implementation("com.alphacephei:vosk-android:0.3.75@aar")
+  implementation("net.java.dev.jna:jna:5.18.1")
+
 }

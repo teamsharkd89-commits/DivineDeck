@@ -68,6 +68,8 @@ import com.divinedeck.launcher.core.designsystem.theme.ensureReadableAccent
 import com.divinedeck.launcher.feature.garage3d.domain.model.LowriderBeatEngine
 import com.divinedeck.launcher.feature.settings.domain.SettingsRepository
 import com.divinedeck.launcher.feature.settings.model.OperatingMode
+import com.divinedeck.launcher.feature.voice.data.VoskModelManager
+import com.divinedeck.launcher.feature.voice.data.VoskModelState
 import kotlinx.coroutines.delay
 
 /**
@@ -129,6 +131,13 @@ fun SettingsScreen(
             ) == PackageManager.PERMISSION_GRANTED
             delay(500)
         }
+    }
+
+    // Estado del modelo de voz sin internet (Vosk): se revalida contra el
+    // disco al entrar en Ajustes, por si ya se descargó en otra sesión.
+    val voskModelState by VoskModelManager.state.collectAsState()
+    LaunchedEffect(Unit) {
+        VoskModelManager.refreshState(context.applicationContext)
     }
 
     Row(
@@ -704,6 +713,88 @@ fun SettingsScreen(
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Text("Reintentar")
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Modelo de voz sin internet (Vosk): se descarga una sola
+                    // vez (~40 MB) y el micrófono funciona aunque no haya
+                    // internet. Sin modelo, el asistente solo escucha con
+                    // internet.
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = palette.elevatedSurface,
+                        border = BorderStroke(1.dp, palette.borderSubtle),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "Modelo de voz sin internet",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = palette.textPrimary
+                            )
+                            val modelState = voskModelState
+                            when (modelState) {
+                                is VoskModelState.Ready -> {
+                                    Text(
+                                        text = "Modelo de voz sin internet: listo",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = palette.statusPositive
+                                    )
+                                }
+                                is VoskModelState.Downloading -> {
+                                    Text(
+                                        text = if (modelState.percent >= 0) {
+                                            "Modelo de voz sin internet: descargando ${modelState.percent}%"
+                                        } else {
+                                            "Modelo de voz sin internet: descargando…"
+                                        },
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = palette.textSecondary
+                                    )
+                                }
+                                is VoskModelState.Error -> {
+                                    Text(
+                                        text = "Modelo de voz sin internet: error",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = palette.textSecondary
+                                    )
+                                    Text(
+                                        text = modelState.message,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = palette.textSecondary
+                                    )
+                                    AutomotiveSecondaryButton(
+                                        onClick = {
+                                            VoskModelManager.retry(context.applicationContext)
+                                        },
+                                        borderColor = palette.accent,
+                                        contentColor = palette.accent,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Reintentar")
+                                    }
+                                }
+                                is VoskModelState.NotDownloaded -> {
+                                    Text(
+                                        text = "Modelo de voz sin internet: no descargado",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = palette.textSecondary
+                                    )
+                                    AutomotiveSecondaryButton(
+                                        onClick = {
+                                            VoskModelManager.ensureModel(context.applicationContext)
+                                        },
+                                        borderColor = palette.accent,
+                                        contentColor = palette.accent,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Descargar modelo")
                                     }
                                 }
                             }
