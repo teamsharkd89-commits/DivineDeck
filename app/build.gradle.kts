@@ -162,6 +162,17 @@ dependencies {
   // (run 38). Se excluye solo ese módulo; el resto de transitivas queda.
   implementation("com.github.k2-fsa:sherpa-onnx:v2.0.1") {
     exclude(group = "com.github.k2-fsa.sherpa-onnx", module = "sherpa-onnx-jvm")
+    // Las 6 native-lib de escritorio (linux/osx/win) del POM también
+    // se empaquetan como recursos en el APK (~34,5 MB de .dylib/.dll
+    // inútiles en Android; run 39 salió de 99,8 MB por esto). Los .so
+    // de Android vienen dentro del propio AAR (jni/arm64-v8a), no de
+    // estos jars, así que excluirlos no quita nada que el APK use.
+    exclude(group = "com.github.k2-fsa.sherpa-onnx", module = "sherpa-onnx-native-lib-linux-aarch64")
+    exclude(group = "com.github.k2-fsa.sherpa-onnx", module = "sherpa-onnx-native-lib-linux-x64")
+    exclude(group = "com.github.k2-fsa.sherpa-onnx", module = "sherpa-onnx-native-lib-osx-aarch64")
+    exclude(group = "com.github.k2-fsa.sherpa-onnx", module = "sherpa-onnx-native-lib-osx-x64")
+    exclude(group = "com.github.k2-fsa.sherpa-onnx", module = "sherpa-onnx-native-lib-win-arm64")
+    exclude(group = "com.github.k2-fsa.sherpa-onnx", module = "sherpa-onnx-native-lib-win-x64")
   }
 
 }
