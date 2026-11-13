@@ -3,6 +3,7 @@ package com.divinedeck.launcher.feature.navcenter.ui
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import android.widget.Toast
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -98,10 +99,44 @@ fun NavCenterScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // El servicio flotante se arranca ANTES de lanzar Google Maps: en
+    // Android 12+ arrancar un servicio en primer plano una vez la app ya
+    // está en segundo plano se rechaza (ForegroundServiceStartNotAllowed).
     val openGoogleMaps: () -> Unit = {
-        navRepository.launchGoogleMaps(context)
+        var floatingAttempted = false
+        var floatingOk = false
         if (Settings.canDrawOverlays(context)) {
-            ReturnHomeFloatingService.start(context)
+            floatingAttempted = true
+            floatingOk = ReturnHomeFloatingService.start(context)
+        }
+        navRepository.launchGoogleMaps(context)
+        if (floatingAttempted) {
+            Toast.makeText(
+                context,
+                if (floatingOk) "Botón flotante activado: toca la casita para volver"
+                else "No se pudo mostrar el botón flotante",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    // Prueba del botón flotante sin abrir Google Maps: lo muestra sobre
+    // la propia DivineDeck para verificar que el overlay se dibuja.
+    val testFloatingButton: () -> Unit = {
+        if (Settings.canDrawOverlays(context)) {
+            val ok = ReturnHomeFloatingService.start(context)
+            Toast.makeText(
+                context,
+                if (ok) "Botón flotante activado: toca la casita para volver"
+                else "No se pudo mostrar el botón flotante",
+                Toast.LENGTH_SHORT
+            ).show()
+        } else {
+            Toast.makeText(
+                context,
+                "Concede el permiso \"Mostrar sobre otras apps\" para probar el botón",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 
@@ -209,6 +244,26 @@ fun NavCenterScreen(
                             }
                         }
                     }
+                }
+
+                // Prueba del botón flotante (sin abrir Google Maps).
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    AutomotiveSecondaryButton(
+                        onClick = { testFloatingButton() }
+                    ) {
+                        Icon(Icons.Default.Home, contentDescription = null, tint = palette.accent)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Probar botón flotante", color = palette.textPrimary)
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "(prueba) Muestra el botón sobre DivineDeck sin abrir Google Maps.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = palette.textSecondary
+                    )
                 }
 
                 if (overlayGranted) {
