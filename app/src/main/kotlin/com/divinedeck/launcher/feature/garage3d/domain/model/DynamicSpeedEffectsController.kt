@@ -27,6 +27,8 @@ data class SpeedEffectsParameters(
     val bodyWarmth: Float = 0f,
     val vibrationY: Float = 0f,
     val vibrationPitch: Float = 0f,
+    val bounceY: Float = 0f,
+    val beatPulse: Float = 0f,
     val timeSeconds: Float = 0f,
     val particleSystem: AutomotiveParticleSystem? = null
 ) {
@@ -70,6 +72,10 @@ class DynamicSpeedEffectsController {
     private var currentVibrationAmp: Float = 0f
     private var currentVibrationPitch: Float = 0f
 
+    // Modo Lowrider: rebote hidráulico y pulso del beat (suavizados)
+    private var currentBounceY: Float = 0f
+    private var currentBeatPulse: Float = 0f
+
     val currentParameters: SpeedEffectsParameters
         get() = SpeedEffectsParameters(
             visualMode = activeMode,
@@ -85,11 +91,14 @@ class DynamicSpeedEffectsController {
             underglowR = currentUnderglowR,
             underglowG = currentUnderglowG,
             underglowB = currentUnderglowB,
-            underglowIntensity = currentUnderglowIntensity,
+            // El beat suma un pulso al underglow (encima del underglow por velocidad).
+            underglowIntensity = (currentUnderglowIntensity + currentBeatPulse * 0.35f).coerceIn(0f, 1f),
             exhaustGlow = currentExhaustGlow,
             bodyWarmth = 0f,
             vibrationY = calculateVibrationY(),
             vibrationPitch = calculateVibrationPitch(),
+            bounceY = currentBounceY,
+            beatPulse = currentBeatPulse,
             timeSeconds = accumulatedTime,
             particleSystem = particleSystem
         )
@@ -115,7 +124,8 @@ class DynamicSpeedEffectsController {
         dtSeconds: Float,
         speedKmh: Float,
         isGpsReliable: Boolean,
-        debugModeOverride: SpeedVisualMode? = null
+        debugModeOverride: SpeedVisualMode? = null,
+        lowriderEnabled: Boolean = false
     ): SpeedEffectsParameters {
         val dt = dtSeconds.coerceIn(0.001f, 0.08f)
         accumulatedTime += dt
@@ -213,6 +223,25 @@ class DynamicSpeedEffectsController {
         currentVibrationAmp = lerp(currentVibrationAmp, targetVibAmp, alpha)
         currentVibrationPitch = lerp(currentVibrationPitch, targetVibPitch, alpha)
 
+        // 7b. Modo Lowrider: hidráulicos al ritmo de la música (Visualizer, sesión 0).
+        // Con el modo apagado (o sin música / sin energía) el rebote y el pulso
+        // decaen suavemente a 0; la lógica de velocidad de arriba queda intacta.
+        val beatAlpha = (1.0f - exp(-dt * 8f)).coerceIn(0.01f, 0.50f)
+        val bounceAlpha = (1.0f - exp(-dt * 10f)).coerceIn(0.01f, 0.50f)
+        if (lowriderEnabled) {
+            LowriderBeatEngine.advance(dt)
+            val energy = LowriderBeatEngine.beatEnergy
+            currentBounceY = if (energy >= 0.08f) {
+                LowriderBeatEngine.bounceY
+            } else {
+                lerp(currentBounceY, 0f, bounceAlpha)
+            }
+            currentBeatPulse = lerp(currentBeatPulse, energy, beatAlpha)
+        } else {
+            currentBounceY = lerp(currentBounceY, 0f, bounceAlpha)
+            currentBeatPulse = lerp(currentBeatPulse, 0f, beatAlpha)
+        }
+
         if (targetIntensity == 0f && currentIntensity < 0.002f) {
             resetToNormal()
         }
@@ -240,6 +269,8 @@ class DynamicSpeedEffectsController {
         currentUnderglowB = SpeedVisualMode.NORMAL.config.underglowB
         currentVibrationAmp = 0f
         currentVibrationPitch = 0f
+        currentBounceY = 0f
+        currentBeatPulse = 0f
     }
 
     private fun lerp(start: Float, end: Float, fraction: Float): Float {

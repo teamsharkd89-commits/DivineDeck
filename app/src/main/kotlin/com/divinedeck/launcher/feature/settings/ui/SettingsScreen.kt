@@ -1,5 +1,12 @@
 package com.divinedeck.launcher.feature.settings.ui
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -35,14 +42,19 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.divinedeck.launcher.core.designsystem.components.AutomotiveCard
 import com.divinedeck.launcher.core.designsystem.components.AutomotivePrimaryButton
 import com.divinedeck.launcher.core.designsystem.components.AutomotiveSecondaryButton
@@ -52,6 +64,7 @@ import com.divinedeck.launcher.core.designsystem.theme.DivineDeckTheme
 import com.divinedeck.launcher.core.designsystem.theme.ThemePreset
 import com.divinedeck.launcher.core.designsystem.theme.buildPaletteForTheme
 import com.divinedeck.launcher.core.designsystem.theme.ensureReadableAccent
+import com.divinedeck.launcher.feature.garage3d.domain.model.LowriderBeatEngine
 import com.divinedeck.launcher.feature.settings.domain.SettingsRepository
 import com.divinedeck.launcher.feature.settings.model.OperatingMode
 
@@ -67,11 +80,33 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val palette = DivineDeckTheme.palette
+    val context = LocalContext.current
     val operatingMode by settingsRepository.operatingMode.collectAsState()
     val autoNightMode by settingsRepository.isAutoNightModeEnabled.collectAsState()
     val selectedTheme by settingsRepository.selectedTheme.collectAsState()
     val customAccentHex by settingsRepository.customAccentHex.collectAsState()
     val cockpitLayout by settingsRepository.cockpitLayout.collectAsState()
+    val isLowriderEnabled by settingsRepository.isLowriderEnabled.collectAsState()
+
+    // Permiso de audio del Modo Lowrider: se pide al activar el interruptor.
+    // Si se deniega, el interruptor queda apagado y se muestra la nota con el
+    // acceso directo a los ajustes de la app.
+    var lowriderPermissionNote by remember { mutableStateOf(false) }
+    val lowriderPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            lowriderPermissionNote = false
+            settingsRepository.setLowriderEnabled(true)
+        } else {
+            lowriderPermissionNote = true
+            settingsRepository.setLowriderEnabled(false)
+        }
+    }
+    val lowriderAudioGranted = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.RECORD_AUDIO
+    ) == PackageManager.PERMISSION_GRANTED
 
     Row(
         modifier = modifier
@@ -502,6 +537,100 @@ fun SettingsScreen(
                                 checkedTrackColor = palette.accent
                             )
                         )
+                    }
+                }
+
+                // Modo Lowrider: el Chevy brinca con los hidráulicos al ritmo de
+                // la música. Necesita el permiso de audio para escuchar el beat
+                // (Visualizer sobre la mezcla del sistema); no se graba ni se
+                // guarda ningún audio.
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "DIVERSIÓN",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 0.8.sp
+                        ),
+                        color = palette.textPrimary
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = palette.elevatedSurface,
+                        border = BorderStroke(1.dp, palette.borderSubtle),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Modo Lowrider",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = palette.textPrimary
+                                    )
+                                    Text(
+                                        text = "El Chevy brinca con los hidráulicos al ritmo de la música",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = palette.textSecondary
+                                    )
+                                }
+                                Switch(
+                                    checked = isLowriderEnabled,
+                                    onCheckedChange = { wantOn ->
+                                        if (!wantOn) {
+                                            lowriderPermissionNote = false
+                                            settingsRepository.setLowriderEnabled(false)
+                                        } else if (lowriderAudioGranted) {
+                                            settingsRepository.setLowriderEnabled(true)
+                                        } else {
+                                            lowriderPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                        }
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = palette.onAccent,
+                                        checkedTrackColor = palette.accent
+                                    )
+                                )
+                            }
+                            if (lowriderPermissionNote || (isLowriderEnabled && !lowriderAudioGranted)) {
+                                Text(
+                                    text = "Activa el permiso de micrófono/audio para usar el Lowrider",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = palette.textSecondary
+                                )
+                                AutomotiveSecondaryButton(
+                                    onClick = {
+                                        try {
+                                            context.startActivity(
+                                                Intent(
+                                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                                    Uri.fromParts("package", context.packageName, null)
+                                                )
+                                            )
+                                        } catch (_: Exception) {
+                                        }
+                                    },
+                                    borderColor = palette.accent,
+                                    contentColor = palette.accent,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Abrir ajustes de la app")
+                                }
+                            }
+                            if (isLowriderEnabled && lowriderAudioGranted && LowriderBeatEngine.lastError != null) {
+                                Text(
+                                    text = "No se pudo escuchar la música en este dispositivo",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = palette.textSecondary
+                                )
+                            }
+                        }
                     }
                 }
 

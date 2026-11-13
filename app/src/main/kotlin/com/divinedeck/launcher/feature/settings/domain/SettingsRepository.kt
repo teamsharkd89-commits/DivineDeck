@@ -12,6 +12,7 @@ interface SettingsRepository {
     val selectedTheme: StateFlow<ThemePreset>
     val customAccentHex: StateFlow<Long>
     val cockpitLayout: StateFlow<CockpitLayout>
+    val isLowriderEnabled: StateFlow<Boolean>
 
     fun setOperatingMode(mode: OperatingMode)
     fun setSpeedLimitWarning(kmh: Int)
@@ -19,4 +20,5 @@ interface SettingsRepository {
     fun setSelectedTheme(theme: ThemePreset)
     fun setCustomAccentHex(hex: Long)
     fun setCockpitLayout(layout: CockpitLayout)
+    fun setLowriderEnabled(enabled: Boolean)
 }

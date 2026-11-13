@@ -55,7 +55,8 @@ fun CockpitScreen(
     onGpsStatusClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     layout: CockpitLayout = CockpitLayout.ORIGINAL,
-    currentRoute: DivineDeckRoute = DivineDeckRoute.COCKPIT
+    currentRoute: DivineDeckRoute = DivineDeckRoute.COCKPIT,
+    lowriderEnabled: Boolean = false
 ) {
     val speedReading by gpsRepository.speedReading.collectAsState()
     val gpsStatus by gpsRepository.gpsStatus.collectAsState()
@@ -93,6 +94,7 @@ fun CockpitScreen(
                     onOpenGarage3D = { onNavigate(DivineDeckRoute.GARAGE_3D) },
                     chevyRenderer = chevyRenderer,
                     showSpeedIndicator = false,
+                    lowriderEnabled = lowriderEnabled,
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1.4f)
@@ -152,6 +154,7 @@ fun CockpitScreen(
                 onGpsStatusClick = onGpsStatusClick,
                 onOpenGarage3D = { onNavigate(DivineDeckRoute.GARAGE_3D) },
                 chevyRenderer = chevyRenderer,
+                lowriderEnabled = lowriderEnabled,
                 modifier = Modifier
                     .weight(1.75f)
                     .fillMaxHeight()

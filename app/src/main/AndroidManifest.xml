@@ -32,6 +32,10 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <!-- Permiso de audio para el Modo Lowrider: el Visualizer escucha el ritmo
+         de la música que suena (sesión 0, mezcla del sistema). No se graba ni
+         se guarda ningún audio; sin él, el Lowrider simplemente no brinca. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
     <!-- Visibilidad de paquetes explícita para el servicio multimedia de BitChord (Media3) -->

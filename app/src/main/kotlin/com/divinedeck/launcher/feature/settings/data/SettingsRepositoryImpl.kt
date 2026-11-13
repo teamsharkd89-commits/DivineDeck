@@ -53,6 +53,11 @@ class SettingsRepositoryImpl(
     )
     override val cockpitLayout: StateFlow<CockpitLayout> = _cockpitLayout.asStateFlow()
 
+    private val _isLowriderEnabled = MutableStateFlow(
+        prefs?.getBoolean(KEY_LOWRIDER_ENABLED, true) ?: true
+    )
+    override val isLowriderEnabled: StateFlow<Boolean> = _isLowriderEnabled.asStateFlow()
+
     override fun setOperatingMode(mode: OperatingMode) {
         _operatingMode.value = mode
         prefs?.edit()?.putString(KEY_OPERATING_MODE, mode.name)?.apply()
@@ -83,6 +88,11 @@ class SettingsRepositoryImpl(
         prefs?.edit()?.putString(KEY_COCKPIT_LAYOUT, layout.id)?.apply()
     }
 
+    override fun setLowriderEnabled(enabled: Boolean) {
+        _isLowriderEnabled.value = enabled
+        prefs?.edit()?.putBoolean(KEY_LOWRIDER_ENABLED, enabled)?.apply()
+    }
+
     companion object {
         const val PREFS_NAME = "divine_deck_settings_prefs"
         const val KEY_OPERATING_MODE = "key_operating_mode"
@@ -91,6 +101,7 @@ class SettingsRepositoryImpl(
         const val KEY_THEME_PRESET = "key_theme_preset"
         const val KEY_CUSTOM_ACCENT_HEX = "key_custom_accent_hex"
         const val KEY_COCKPIT_LAYOUT = "key_cockpit_layout"
+        const val KEY_LOWRIDER_ENABLED = "key_lowrider_enabled"
         const val DEFAULT_CUSTOM_ACCENT_HEX = 0xFFFFB547L
     }
 }

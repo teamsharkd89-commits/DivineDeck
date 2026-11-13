@@ -65,6 +65,7 @@ fun ChevyGlbStudioView(
     onRotate: (deltaYaw: Float, deltaPitch: Float) -> Unit,
     onZoom: (scaleDelta: Float) -> Unit,
     onUserTouchInteraction: () -> Unit = {},
+    lowriderEnabled: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -91,7 +92,8 @@ fun ChevyGlbStudioView(
         state.debugVisualModeOverride,
         palette.background,
         palette.accent,
-        palette.preset
+        palette.preset,
+        lowriderEnabled
     ) {
         glRenderer.updateSceneState(
             yaw = state.rotationYaw,
@@ -106,7 +108,8 @@ fun ChevyGlbStudioView(
             accentColor = palette.accent,
             secondaryColor = palette.accentSecondary,
             vaporwave = palette.preset == ThemePreset.VAPORWAVE,
-            hideFloorShadow = palette.preset == ThemePreset.ROJO_SPORT || palette.preset == ThemePreset.VAPORWAVE
+            hideFloorShadow = palette.preset == ThemePreset.ROJO_SPORT || palette.preset == ThemePreset.VAPORWAVE,
+            lowriderEnabled = lowriderEnabled
         )
     }
 
@@ -240,6 +243,7 @@ private class ChevyGlbOpenGLRenderer(
     @Volatile private var targetSpeedKmh: Float = 0f
     @Volatile private var targetGpsReliable: Boolean = false
     @Volatile private var targetDebugModeOverride: SpeedVisualMode? = null
+    @Volatile private var targetLowriderEnabled: Boolean = false
 
     private val speedEffectsController = DynamicSpeedEffectsController()
 
@@ -254,6 +258,13 @@ private class ChevyGlbOpenGLRenderer(
     private val modelMatrix = FloatArray(16)
     private val mvpMatrix = FloatArray(16)
     private val vpMatrix = FloatArray(16)
+
+    // Modo Lowrider: matrices separadas para carrocería (rebota con el beat)
+    // y ruedas (se quedan en el suelo). Ver selectCarMatrix.
+    private val bodyModelMatrix = FloatArray(16)
+    private val wheelModelMatrix = FloatArray(16)
+    private val bodyMvpMatrix = FloatArray(16)
+    private val wheelMvpMatrix = FloatArray(16)
 
     private var pbrProgram = 0
     private var floorProgram = 0
@@ -328,7 +339,8 @@ private class ChevyGlbOpenGLRenderer(
         accentColor: Color,
         secondaryColor: Color,
         vaporwave: Boolean = false,
-        hideFloorShadow: Boolean = false
+        hideFloorShadow: Boolean = false,
+        lowriderEnabled: Boolean = false
     ) {
         if (!autoRotate && isAutoRotating) {
             // Conserva la orientación visual actual al detener la rotación automática para evitar saltos
@@ -353,6 +365,7 @@ private class ChevyGlbOpenGLRenderer(
         secB = secondaryColor.blue
         this.vaporwave = vaporwave
         this.hideFloorShadow = hideFloorShadow
+        targetLowriderEnabled = lowriderEnabled
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -442,7 +455,8 @@ private class ChevyGlbOpenGLRenderer(
             dtSeconds = dt,
             speedKmh = targetSpeedKmh,
             isGpsReliable = targetGpsReliable,
-            debugModeOverride = targetDebugModeOverride
+            debugModeOverride = targetDebugModeOverride,
+            lowriderEnabled = targetLowriderEnabled
         )
 
         GLES30.glClearColor(bgR, bgG, bgB, 1.0f)
@@ -478,10 +492,18 @@ private class ChevyGlbOpenGLRenderer(
         drawStudioFloor(effectsParams)
 
         // 2. Modelo 3D del Chevrolet Chevy C2 con vibración sutil por velocidad (Parte E)
-        Matrix.setIdentityM(modelMatrix, 0)
-        Matrix.translateM(modelMatrix, 0, 0f, effectsParams.vibrationY, 0f)
-        Matrix.rotateM(modelMatrix, 0, effectsParams.vibrationPitch, 1f, 0f, 0f)
-        Matrix.multiplyMM(mvpMatrix, 0, vpMatrix, 0, modelMatrix, 0)
+        // Modo Lowrider: DOS matrices — la carrocería sube con el rebote del
+        // beat (vibrationY + bounceY) y las ruedas (materiales 3 TireRubber y
+        // 4 AlloyRim) se quedan en el suelo (solo vibrationY). Sin Lowrider,
+        // bounceY = 0 y ambas matrices son idénticas a la matriz única anterior.
+        Matrix.setIdentityM(bodyModelMatrix, 0)
+        Matrix.translateM(bodyModelMatrix, 0, 0f, effectsParams.vibrationY + effectsParams.bounceY, 0f)
+        Matrix.rotateM(bodyModelMatrix, 0, effectsParams.vibrationPitch, 1f, 0f, 0f)
+        Matrix.multiplyMM(bodyMvpMatrix, 0, vpMatrix, 0, bodyModelMatrix, 0)
+        Matrix.setIdentityM(wheelModelMatrix, 0)
+        Matrix.translateM(wheelModelMatrix, 0, 0f, effectsParams.vibrationY, 0f)
+        Matrix.rotateM(wheelModelMatrix, 0, effectsParams.vibrationPitch, 1f, 0f, 0f)
+        Matrix.multiplyMM(wheelMvpMatrix, 0, vpMatrix, 0, wheelModelMatrix, 0)
 
         // Sub-mallas opacas del modelo .glb (carrocería, rines, neumáticos, cálipers, escape, parrilla)
         GLES30.glDisable(GLES30.GL_BLEND)
@@ -490,6 +512,7 @@ private class ChevyGlbOpenGLRenderer(
             if (!mesh.material.isBlend) {
                 // Rojo Sport: sin la sombra falsa del modelo 3D
                 if (hideFloorShadow && mesh.materialIndex == UNDERBODY_SHADOW_MATERIAL_INDEX) continue
+                selectCarMatrix(mesh.materialIndex)
                 drawSubMesh(mesh, eyeX, eyeY, eyeZ, effectsParams)
             }
         }
@@ -500,10 +523,16 @@ private class ChevyGlbOpenGLRenderer(
         for (mesh in gpuMeshes) {
             if (mesh.material.isBlend) {
                 if (hideFloorShadow && mesh.materialIndex == UNDERBODY_SHADOW_MATERIAL_INDEX) continue
+                selectCarMatrix(mesh.materialIndex)
                 drawSubMesh(mesh, eyeX, eyeY, eyeZ, effectsParams)
             }
         }
         GLES30.glDisable(GLES30.GL_BLEND)
+
+        // Las estelas y partículas leen mvpMatrix tal cual (antes era la matriz
+        // única del auto): se restaura la matriz de carrocería para no cambiar
+        // su comportamiento y que el humo del escape siga a la carrocería.
+        selectCarMatrix(-1)
 
         // 4. Cintas aerodinámicas de velocidad (Aero speed trails en spoilers y difusor)
         effectsParams.particleSystem?.let { drawAeroTrails(it) }
@@ -563,6 +592,21 @@ private class ChevyGlbOpenGLRenderer(
         GLES30.glDepthMask(true)
         GLES30.glDisable(GLES30.GL_BLEND)
         GLES30.glUseProgram(0)
+    }
+
+    /**
+     * Modo Lowrider (hidráulicos): elige la matriz del auto por sub-malla.
+     * Materiales 3 (TireRubber) y 4 (AlloyRim) = ruedas, se quedan en el suelo;
+     * el resto = carrocería, que rebota con el beat. Copia la matriz elegida a
+     * los campos compartidos modelMatrix/mvpMatrix que lee drawSubMesh.
+     */
+    private fun selectCarMatrix(materialIndex: Int) {
+        val isWheel = materialIndex == WHEEL_TIRE_MATERIAL_INDEX ||
+            materialIndex == WHEEL_RIM_MATERIAL_INDEX
+        val srcModel = if (isWheel) wheelModelMatrix else bodyModelMatrix
+        val srcMvp = if (isWheel) wheelMvpMatrix else bodyMvpMatrix
+        System.arraycopy(srcModel, 0, modelMatrix, 0, 16)
+        System.arraycopy(srcMvp, 0, mvpMatrix, 0, 16)
     }
 
     private fun drawSubMesh(
@@ -871,6 +915,11 @@ private class ChevyGlbOpenGLRenderer(
         // la malla de sombra falsa bajo el auto (albedo 0.04, casi negra).
         // En Rojo Sport no se dibuja (ver hideFloorShadow).
         private const val UNDERBODY_SHADOW_MATERIAL_INDEX = 10
+
+        // Materiales de rueda en chevy_c2_2009.glb (hidráulicos Lowrider):
+        // 3 = TireRubber (neumáticos), 4 = AlloyRim (rines de aleación).
+        private const val WHEEL_TIRE_MATERIAL_INDEX = 3
+        private const val WHEEL_RIM_MATERIAL_INDEX = 4
 
         private const val BACKGROUND_VERTEX_SHADER = """#version 300 es
             // Triángulo a pantalla completa vía gl_VertexID (sin VBO).

@@ -53,7 +53,8 @@ import com.divinedeck.launcher.feature.garage3d.domain.model.SpeedVisualMode
 @Composable
 fun Garage3DScreen(
     chevyRenderer: Chevy3DRenderer,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    lowriderEnabled: Boolean = false
 ) {
     val palette = DivineDeckTheme.palette
     val chevyState by chevyRenderer.modelState.collectAsState()
@@ -205,6 +206,7 @@ fun Garage3DScreen(
                                 chevyRenderer.setAutoRotate(false)
                             }
                         },
+                        lowriderEnabled = lowriderEnabled,
                         modifier = Modifier.fillMaxSize()
                     )
 

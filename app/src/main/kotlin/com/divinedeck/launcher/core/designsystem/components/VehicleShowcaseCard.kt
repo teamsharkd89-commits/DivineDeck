@@ -71,7 +71,8 @@ fun VehicleShowcaseCard(
      * El layout Panorámica lo pone en false porque la velocidad vive en
      * su propia tarjeta analógica ([SpeedGaugeCard]).
      */
-    showSpeedIndicator: Boolean = true
+    showSpeedIndicator: Boolean = true,
+    lowriderEnabled: Boolean = false
 ) {
     val palette = DivineDeckTheme.palette
     val chevyState by chevyRenderer.modelState.collectAsState()
@@ -110,6 +111,7 @@ fun VehicleShowcaseCard(
         // 1. ÁREA DE RENDERIZADO 3D AMPLIADA AL 100% DEL VISOR (Protagonismo absoluto del vehículo)
         ChevyStudioViewport(
             chevyRenderer = chevyRenderer,
+            lowriderEnabled = lowriderEnabled,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -271,7 +273,8 @@ fun VehicleShowcaseCard(
 @Composable
 fun ChevyStudioViewport(
     modifier: Modifier = Modifier,
-    chevyRenderer: Chevy3DRenderer = remember { Chevy3DContractImpl() }
+    chevyRenderer: Chevy3DRenderer = remember { Chevy3DContractImpl() },
+    lowriderEnabled: Boolean = false
 ) {
     val chevyState by chevyRenderer.modelState.collectAsState()
 
@@ -295,6 +298,7 @@ fun ChevyStudioViewport(
                     chevyRenderer.setAutoRotate(false)
                 }
             },
+            lowriderEnabled = lowriderEnabled,
             modifier = Modifier.fillMaxSize()
         )
     }

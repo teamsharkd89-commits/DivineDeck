@@ -49,6 +49,7 @@ import com.divinedeck.launcher.feature.appcenter.data.AppLauncherRepositoryImpl
 import com.divinedeck.launcher.feature.appcenter.ui.AppCenterScreen
 import com.divinedeck.launcher.feature.cockpit.ui.CockpitScreen
 import com.divinedeck.launcher.feature.garage3d.data.Chevy3DContractImpl
+import com.divinedeck.launcher.feature.garage3d.domain.model.LowriderBeatEngine
 import com.divinedeck.launcher.feature.garage3d.domain.model.SpeedVisualMode
 import com.divinedeck.launcher.feature.garage3d.ui.Garage3DScreen
 import com.divinedeck.launcher.feature.gps.data.GpsSpeedometerRepositoryImpl
@@ -115,6 +116,7 @@ class MainActivity : ComponentActivity() {
             val customAccentHex by settingsRepository.customAccentHex.collectAsState()
             val cockpitLayout by settingsRepository.cockpitLayout.collectAsState()
             val operatingMode by settingsRepository.operatingMode.collectAsState()
+            val isLowriderEnabled by settingsRepository.isLowriderEnabled.collectAsState()
 
             val speedReading by gpsRepository.speedReading.collectAsState()
             val gpsStatus by gpsRepository.gpsStatus.collectAsState()
@@ -178,6 +180,22 @@ class MainActivity : ComponentActivity() {
                     0f
                 }
                 chevy3DRenderer.onSpeedUpdated(effectiveSpeed, speedReading.isReliable)
+            }
+
+            // Modo Lowrider: el motor de ritmo (Visualizer sobre la mezcla del
+            // sistema, sesión 0) solo vive mientras el ajuste está activo Y el
+            // permiso RECORD_AUDIO está concedido. Sin permiso no se arranca y
+            // el Chevy simplemente no brinca; nunca se graba audio.
+            LaunchedEffect(isLowriderEnabled) {
+                val audioGranted = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.RECORD_AUDIO
+                ) == PackageManager.PERMISSION_GRANTED
+                if (isLowriderEnabled && audioGranted) {
+                    LowriderBeatEngine.start(context.applicationContext)
+                } else {
+                    LowriderBeatEngine.stop()
+                }
             }
 
             // Ciclo de vida: rastreo GPS activo únicamente mientras la pantalla y app estén activas
@@ -280,7 +298,8 @@ class MainActivity : ComponentActivity() {
                                             },
                                             onGpsStatusClick = requestLocationPermissionOrSettings,
                                             layout = cockpitLayout,
-                                            currentRoute = currentRoute
+                                            currentRoute = currentRoute,
+                                            lowriderEnabled = isLowriderEnabled
                                         )
                                         DivineDeckRoute.MUSIC -> {
                                             // Conmutado por AnimatedContent superior en modo inmersivo
@@ -289,7 +308,8 @@ class MainActivity : ComponentActivity() {
                                             navRepository = navRepository
                                         )
                                         DivineDeckRoute.GARAGE_3D -> Garage3DScreen(
-                                            chevyRenderer = chevy3DRenderer
+                                            chevyRenderer = chevy3DRenderer,
+                                            lowriderEnabled = isLowriderEnabled
                                         )
                                         DivineDeckRoute.WIDGETS -> WidgetCenterScreen(
                                             widgetManager = widgetManager
