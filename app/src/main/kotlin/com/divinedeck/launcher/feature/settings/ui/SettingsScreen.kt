@@ -68,8 +68,9 @@ import com.divinedeck.launcher.core.designsystem.theme.ensureReadableAccent
 import com.divinedeck.launcher.feature.garage3d.domain.model.LowriderBeatEngine
 import com.divinedeck.launcher.feature.settings.domain.SettingsRepository
 import com.divinedeck.launcher.feature.settings.model.OperatingMode
-import com.divinedeck.launcher.feature.voice.data.VoskModelManager
-import com.divinedeck.launcher.feature.voice.data.VoskModelState
+import com.divinedeck.launcher.feature.voice.data.CrashCatcher
+import com.divinedeck.launcher.feature.voice.data.SherpaModelManager
+import com.divinedeck.launcher.feature.voice.data.SherpaModelState
 import kotlinx.coroutines.delay
 
 /**
@@ -133,11 +134,17 @@ fun SettingsScreen(
         }
     }
 
-    // Estado del modelo de voz sin internet (Vosk): se revalida contra el
+    // Estado del modelo de voz sin internet (Sherpa-ONNX): se revalida contra el
     // disco al entrar en Ajustes, por si ya se descargó en otra sesión.
-    val voskModelState by VoskModelManager.state.collectAsState()
+    val sherpaModelState by SherpaModelManager.state.collectAsState()
     LaunchedEffect(Unit) {
-        VoskModelManager.refreshState(context.applicationContext)
+        SherpaModelManager.refreshState(context.applicationContext)
+    }
+
+    // Último crash registrado por CrashCatcher (o null si no hay ninguno).
+    var lastCrash by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        lastCrash = CrashCatcher.readLastCrash(context.applicationContext)
     }
 
     Row(
@@ -719,10 +726,10 @@ fun SettingsScreen(
                         }
                     }
 
-                    // Modelo de voz sin internet (Vosk): se descarga una sola
-                    // vez (~40 MB) y el micrófono funciona aunque no haya
-                    // internet. Sin modelo, el asistente solo escucha con
-                    // internet.
+                    // Modelo de voz sin internet (Sherpa-ONNX + Whisper tiny):
+                    // se descarga una sola vez (~104 MB) y el micrófono
+                    // funciona aunque no haya internet. Sin modelo, el
+                    // asistente solo escucha con internet.
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = palette.elevatedSurface,
@@ -738,16 +745,16 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.titleMedium,
                                 color = palette.textPrimary
                             )
-                            val modelState = voskModelState
+                            val modelState = sherpaModelState
                             when (modelState) {
-                                is VoskModelState.Ready -> {
+                                is SherpaModelState.Ready -> {
                                     Text(
                                         text = "Modelo de voz sin internet: listo",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = palette.statusPositive
                                     )
                                 }
-                                is VoskModelState.Downloading -> {
+                                is SherpaModelState.Downloading -> {
                                     Text(
                                         text = if (modelState.percent >= 0) {
                                             "Modelo de voz sin internet: descargando ${modelState.percent}%"
@@ -758,7 +765,7 @@ fun SettingsScreen(
                                         color = palette.textSecondary
                                     )
                                 }
-                                is VoskModelState.Error -> {
+                                is SherpaModelState.Error -> {
                                     Text(
                                         text = "Modelo de voz sin internet: error",
                                         style = MaterialTheme.typography.bodyMedium,
@@ -771,7 +778,7 @@ fun SettingsScreen(
                                     )
                                     AutomotiveSecondaryButton(
                                         onClick = {
-                                            VoskModelManager.retry(context.applicationContext)
+                                            SherpaModelManager.retry(context.applicationContext)
                                         },
                                         borderColor = palette.accent,
                                         contentColor = palette.accent,
@@ -780,7 +787,7 @@ fun SettingsScreen(
                                         Text("Reintentar")
                                     }
                                 }
-                                is VoskModelState.NotDownloaded -> {
+                                is SherpaModelState.NotDownloaded -> {
                                     Text(
                                         text = "Modelo de voz sin internet: no descargado",
                                         style = MaterialTheme.typography.bodyMedium,
@@ -788,7 +795,7 @@ fun SettingsScreen(
                                     )
                                     AutomotiveSecondaryButton(
                                         onClick = {
-                                            VoskModelManager.ensureModel(context.applicationContext)
+                                            SherpaModelManager.ensureModel(context.applicationContext)
                                         },
                                         borderColor = palette.accent,
                                         contentColor = palette.accent,
@@ -797,6 +804,41 @@ fun SettingsScreen(
                                         Text("Descargar modelo")
                                     }
                                 }
+                            }
+                        }
+                    }
+
+                    // Último error de la app (crash): lo guarda CrashCatcher
+                    // en filesDir/crash-ultimo-error.txt. Sirve para pasar
+                    // el error exacto a quien arregla la app.
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = palette.elevatedSurface,
+                        border = BorderStroke(1.dp, palette.borderSubtle),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "Último error de la app",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = palette.textPrimary
+                            )
+                            val crashText = lastCrash
+                            if (crashText == null) {
+                                Text(
+                                    text = "Sin errores registrados",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = palette.statusPositive
+                                )
+                            } else {
+                                Text(
+                                    text = crashText.take(1200),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = palette.textSecondary
+                                )
                             }
                         }
                     }

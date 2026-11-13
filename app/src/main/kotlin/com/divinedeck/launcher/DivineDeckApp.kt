@@ -6,6 +6,7 @@ import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
+import com.divinedeck.launcher.feature.voice.data.CrashCatcher
 import com.music.bitchord.data.Http
 import com.music.bitchord.data.innertube.AndroidStreamHooks
 import com.music.bitchord.data.settings.AppSettings
@@ -17,6 +18,9 @@ import com.music.bitchord.data.settings.AppSettings
  */
 class DivineDeckApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
+        // Primero que nada: el atrapador de crashes guarda el último
+        // error en filesDir/crash-ultimo-error.txt (Ajustes > DIVERSIÓN).
+        CrashCatcher.install(this)
         super.onCreate()
         // Inicialización temprana de subsistemas y telemetría de BitChord
         AndroidStreamHooks.installEarly()

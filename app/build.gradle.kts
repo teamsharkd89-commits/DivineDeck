@@ -18,6 +18,12 @@ android {
     // Número de build de GitHub Actions (el mismo que usa el tag
     // debug-06.11-<run_number>). En local es 0.
     buildConfigField("int", "GITHUB_RUN_NUMBER", (System.getenv("GITHUB_RUN_NUMBER") ?: "0"))
+    // Solo arm64-v8a: es la ABI de la Galaxy Tab A11 y el AAR de
+    // Sherpa-ONNX trae las 4 ABIs (~49 MB); sin este filtro el APK
+    // cargaría con librerías nativas que la tablet nunca usa.
+    ndk {
+      abiFilters += "arm64-v8a"
+    }
   }
 
   signingConfigs {
@@ -140,13 +146,12 @@ dependencies {
   implementation(libs.ktor.serialization.kotlinx.json)
   implementation(libs.kotlinx.serialization.json)
 
-  // Vosk: reconocimiento de voz sin internet (offline, gratis, sin clave
-  // ni cuenta). El @aar es OBLIGATORIO: la coordenada simple resuelve a
-  // un JAR sin las librerías nativas (libvosk.so) y compila pero crashea
-  // en runtime. JNA es la dependencia nativa que usa libvosk.
-  // Se declaran con coordenadas directas (no en el catálogo) justo por
-  // el sufijo @aar, que el catálogo de versiones no puede expresar.
-  implementation("com.alphacephei:vosk-android:0.3.75@aar")
-  implementation("net.java.dev.jna:jna:5.18.1")
+  // Sherpa-ONNX: reconocimiento de voz sin internet (offline, gratis,
+  // sin clave ni cuenta). El modelo Whisper tiny en español (~104 MB) NO
+  // va en el APK: se descarga una sola vez desde Hugging Face
+  // (ver SherpaModelManager). Solo JitPack: la coordenada de Maven
+  // Central con el mismo nombre es de un tercero sin relación.
+  // Sin dependencias adicionales: el AAR ya trae ONNX Runtime y JNI.
+  implementation("com.github.k2-fsa:sherpa-onnx:sherpa-onnx:v2.0.1")
 
 }

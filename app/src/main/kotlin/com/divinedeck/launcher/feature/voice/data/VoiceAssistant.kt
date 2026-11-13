@@ -51,16 +51,20 @@ sealed interface VoiceState {
  * Asistente de voz de DivineDeck — VERSIÓN BOTÓN.
  *
  * Se escucha SOLO mientras Daniel toca el botón del micrófono en el
- * Cockpit. Sin palabra de activación, sin escucha continua, sin
- * Porcupine: usa el SpeechRecognizer integrado de Android (es-MX,
+ * Cockpit. Sin palabra de activación, sin escucha continua: usa el SpeechRecognizer integrado de Android (es-MX,
  * necesita internet) y TextToSpeech (es-MX) solo para confirmar los
- * comandos. SIN INTERNET cae automáticamente a Vosk offline (modelo
- * español descargado una sola vez, ~40 MB, ver [VoskModelManager]):
- * primero se comprueba la conectividad y si no hay, se va directo a
- * Vosk; si el reconocedor online falla con ERROR_NETWORK, también se
- * cambia a Vosk y se sigue escuchando.
+ * comandos. SIN INTERNET cae automáticamente a Sherpa-ONNX offline
+ * (Whisper tiny en español, modelo descargado una sola vez, ~104 MB,
+ * ver [SherpaModelManager]): primero se comprueba la conectividad y si
+ * no hay, se va directo a Sherpa; si el reconocedor online falla con
+ * ERROR_NETWORK, también se cambia a Sherpa y se sigue escuchando.
  *
- * El reconocedor debe crearse en el hilo principal: MainActivity lo
+ * Blindaje contra crashes: el arranque del reconocedor/modelo y todas
+ * las ejecuciones de comandos atrapan [Throwable] (no solo Exception),
+ * así que cualquier fallo —incluido un error nativo del motor offline—
+ * termina en un mensaje limpio en español en vez de tumbar la app.
+ *
+ * El reconocedor online debe crearse en el hilo principal: MainActivity lo
  * construye en un lazy val que se toca por primera vez desde setContent.
  * RECORD_AUDIO ya está declarado y concedido (Lowrider); si alguna vez
  * no está concedido, se informa el error en vez de fallar.
@@ -87,14 +91,27 @@ class VoiceAssistant(
     private var isListening = false
     private var utteranceCounter = 0
 
-    // --- Respaldo offline (Vosk) ---
-    private var voskRecognizer: VoskSpeechRecognizer? = null
-    private var voskWaitJob: Job? = null
-    private var usingVoskFallback = false
+    // --- Respaldo offline (Sherpa-ONNX) ---
+    // Una sola instancia para toda la vida de la app: el reconocedor
+    // Sherpa carga el modelo (~104 MB) una vez y se reutiliza en cada
+    // escucha; se libera solo en shutdown().
+    private var sherpaRecognizer: SherpaSpeechRecognizer? = null
+    private var sherpaWaitJob: Job? = null
+    private var usingSherpaFallback = false
 
     init {
+        // El crash catcher guarda el último estado de voz con cada crash.
+        scope.launch {
+            try {
+                state.collect { CrashCatcher.lastVoiceState = it.toString() }
+            } catch (_: Throwable) {
+            }
+        }
         // Revalida si el modelo offline ya se descargó en otra sesión.
-        VoskModelManager.refreshState(appContext)
+        try {
+            SherpaModelManager.refreshState(appContext)
+        } catch (_: Throwable) {
+        }
         // Primera descarga automática del modelo offline: si hay internet
         // y el modelo aún no está descargado, se baja en segundo plano
         // (silencioso, sin bloquear el micrófono) para que la primera
@@ -102,239 +119,343 @@ class VoiceAssistant(
         // (no hace nada si ya está listo o descargándose) y si falla no
         // se reintenta solo: quedan el botón "Descargar modelo" /
         // "Reintentar" de Ajustes y el próximo arranque de la app.
-        if (!VoskModelManager.isReady(appContext) && isInternetAvailable()) {
-            VoskModelManager.ensureModel(appContext)
-        }
-        textToSpeech = TextToSpeech(appContext) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                val result = textToSpeech?.setLanguage(Locale("es", "MX"))
-                if (result == TextToSpeech.LANG_MISSING_DATA ||
-                    result == TextToSpeech.LANG_NOT_SUPPORTED
-                ) {
-                    // Sin voz es-MX instalada: se usa la voz por defecto.
-                    textToSpeech?.setLanguage(Locale.getDefault())
-                }
-                ttsReady = true
+        try {
+            if (!SherpaModelManager.isReady(appContext) && hasInternetCapability()) {
+                SherpaModelManager.ensureModel(appContext)
             }
+        } catch (_: Throwable) {
+        }
+        try {
+            textToSpeech = TextToSpeech(appContext) { status ->
+                try {
+                    if (status == TextToSpeech.SUCCESS) {
+                        val result = textToSpeech?.setLanguage(Locale("es", "MX"))
+                        if (result == TextToSpeech.LANG_MISSING_DATA ||
+                            result == TextToSpeech.LANG_NOT_SUPPORTED
+                        ) {
+                            // Sin voz es-MX instalada: se usa la voz por defecto.
+                            textToSpeech?.setLanguage(Locale.getDefault())
+                        }
+                        ttsReady = true
+                    }
+                } catch (_: Throwable) {
+                }
+            }
+        } catch (_: Throwable) {
+            textToSpeech = null
         }
     }
 
     /** Empieza a escuchar. Si ya está escuchando, no hace nada. */
     fun startListening() {
-        if (isListening) return
-        usingVoskFallback = false
-        if (ContextCompat.checkSelfPermission(appContext, Manifest.permission.RECORD_AUDIO) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            _state.value = VoiceState.Error("Concede el permiso de micrófono en Ajustes")
-            return
-        }
-        // Sin internet no se intenta el reconocedor online: se va directo
-        // al respaldo offline (Vosk), que no necesita conectividad.
-        if (!isInternetAvailable()) {
-            startVoskListening()
-            return
-        }
-        if (!SpeechRecognizer.isRecognitionAvailable(appContext)) {
-            _state.value = VoiceState.Error("El reconocimiento de voz no está disponible en este dispositivo")
-            speak("El reconocimiento de voz no está disponible en este dispositivo")
-            return
-        }
         try {
-            val listener = createListener()
-            val speechRecognizer = SpeechRecognizer.createSpeechRecognizer(appContext).apply {
-                setRecognitionListener(listener)
+            if (isListening) return
+            usingSherpaFallback = false
+            if (ContextCompat.checkSelfPermission(appContext, Manifest.permission.RECORD_AUDIO) !=
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                _state.value = VoiceState.Error("Concede el permiso de micrófono en Ajustes")
+                return
             }
-            recognizer = speechRecognizer
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(
-                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-                )
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-MX")
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            // Sin internet no se intenta el reconocedor online: se va directo
+            // al respaldo offline (Sherpa), que no necesita conectividad.
+            if (!hasInternetCapability()) {
+                startSherpaListening()
+                return
             }
-            isListening = true
-            _state.value = VoiceState.Listening
-            speechRecognizer.startListening(intent)
-        } catch (_: Exception) {
+            if (!SpeechRecognizer.isRecognitionAvailable(appContext)) {
+                _state.value = VoiceState.Error("El reconocimiento de voz no está disponible en este dispositivo")
+                speak("El reconocimiento de voz no está disponible en este dispositivo")
+                return
+            }
+            try {
+                val listener = createListener()
+                val speechRecognizer = SpeechRecognizer.createSpeechRecognizer(appContext).apply {
+                    setRecognitionListener(listener)
+                }
+                recognizer = speechRecognizer
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(
+                        RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                        RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+                    )
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-MX")
+                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                }
+                isListening = true
+                _state.value = VoiceState.Listening
+                speechRecognizer.startListening(intent)
+            } catch (_: Throwable) {
+                isListening = false
+                try {
+                    recognizer?.destroy()
+                } catch (_: Throwable) {
+                }
+                recognizer = null
+                _state.value = VoiceState.Error("No se pudo iniciar el micrófono")
+            }
+        } catch (_: Throwable) {
             isListening = false
-            recognizer = null
+            usingSherpaFallback = false
             _state.value = VoiceState.Error("No se pudo iniciar el micrófono")
         }
     }
 
     /** Deja de escuchar y vuelve a Idle. */
     fun stopListening() {
-        if (!isListening) return
-        isListening = false
-        usingVoskFallback = false
-        voskWaitJob?.cancel()
-        voskWaitJob = null
         try {
-            recognizer?.stopListening()
-        } catch (_: Exception) {
-        }
-        // La descarga del modelo, si está en curso, sigue en segundo plano
-        // (así la próxima escucha ya lo tiene); solo se suelta el micrófono.
-        releaseVosk()
-        if (_state.value is VoiceState.Listening ||
-            _state.value is VoiceState.DownloadingModel
-        ) {
+            if (usingSherpaFallback) {
+                // Si aún se está descargando el modelo, cancelar la espera.
+                if (sherpaWaitJob != null) {
+                    sherpaWaitJob?.cancel()
+                    sherpaWaitJob = null
+                    isListening = false
+                    usingSherpaFallback = false
+                    if (_state.value is VoiceState.Listening ||
+                        _state.value is VoiceState.DownloadingModel
+                    ) {
+                        _state.value = VoiceState.Idle
+                    }
+                    return
+                }
+                // Escuchando con Sherpa: parar el micrófono y decodificar
+                // en segundo plano; el resultado llega por onSherpaHeard /
+                // onSherpaError (el estado sigue en Listening hasta entonces).
+                // La descarga del modelo, si está en curso, sigue en
+                // segundo plano (así la próxima escucha ya lo tiene).
+                try {
+                    sherpaRecognizer?.stop()
+                } catch (_: Throwable) {
+                    isListening = false
+                    usingSherpaFallback = false
+                    _state.value = VoiceState.Idle
+                }
+                return
+            }
+            if (!isListening) return
+            isListening = false
+            usingSherpaFallback = false
+            sherpaWaitJob?.cancel()
+            sherpaWaitJob = null
+            try {
+                recognizer?.stopListening()
+            } catch (_: Throwable) {
+            }
+            if (_state.value is VoiceState.Listening ||
+                _state.value is VoiceState.DownloadingModel
+            ) {
+                _state.value = VoiceState.Idle
+            }
+        } catch (_: Throwable) {
+            isListening = false
+            usingSherpaFallback = false
             _state.value = VoiceState.Idle
         }
     }
 
-    // --- Respaldo offline (Vosk): SOLO escucha, nunca ejecuta directo.
+    // --- Respaldo offline (Sherpa-ONNX): SOLO escucha, nunca ejecuta directo.
     // El texto reconocido pasa por el mismo VoiceCommandParser que el
-    // reconocedor online (ver onVoskHeard). ---
+    // reconocedor online (ver onSherpaHeard). ---
 
-    /** true si hay una red validada con acceso a internet. */
-    private fun isInternetAvailable(): Boolean {
+    /**
+     * true si hay una red con capacidad de internet.
+     *
+     * OJO: NO se exige NET_CAPABILITY_VALIDATED. Una red conectada pero
+     * aún no validada (p. ej. portal cautivo a medio abrir, o validación
+     * lenta) no debe mandar en silencio al camino offline: se prefiere
+     * intentar el reconocedor online y, si falla con ERROR_NETWORK, ahí
+     * sí cae al respaldo offline.
+     */
+    private fun hasInternetCapability(): Boolean {
         return try {
             val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE)
                 as? ConnectivityManager ?: return false
             val network = cm.activeNetwork ?: return false
             val capabilities = cm.getNetworkCapabilities(network) ?: return false
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-        } catch (_: Exception) {
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (_: Throwable) {
             false
         }
     }
 
     /**
-     * Empieza a escuchar con Vosk (offline). Si el modelo aún no está
+     * Empieza a escuchar con Sherpa (offline). Si el modelo aún no está
      * descargado, arranca la descarga y espera a que esté listo; si la
      * descarga falla (p. ej. sin internet para descargarlo), publica el
      * error en español en vez de quedarse colgado.
      */
-    private fun startVoskListening() {
-        if (isListening) return
-        usingVoskFallback = true
-        isListening = true
-        if (VoskModelManager.isReady(appContext)) {
-            startVoskNow()
-            return
-        }
-        _state.value = VoiceState.DownloadingModel(-1)
-        VoskModelManager.ensureModel(appContext)
-        voskWaitJob?.cancel()
-        voskWaitJob = scope.launch {
-            VoskModelManager.state.collect { modelState ->
-                when (modelState) {
-                    is VoskModelState.Ready -> startVoskNow()
-                    is VoskModelState.Downloading -> {
-                        _state.value = VoiceState.DownloadingModel(modelState.percent)
+    private fun startSherpaListening() {
+        try {
+            if (isListening) return
+            usingSherpaFallback = true
+            isListening = true
+            if (SherpaModelManager.isReady(appContext)) {
+                startSherpaNow()
+                return
+            }
+            _state.value = VoiceState.DownloadingModel(-1)
+            SherpaModelManager.ensureModel(appContext)
+            sherpaWaitJob?.cancel()
+            sherpaWaitJob = scope.launch {
+                try {
+                    SherpaModelManager.state.collect { modelState ->
+                        when (modelState) {
+                            is SherpaModelState.Ready -> startSherpaNow()
+                            is SherpaModelState.Downloading -> {
+                                _state.value = VoiceState.DownloadingModel(modelState.percent)
+                            }
+                            is SherpaModelState.Error -> {
+                                isListening = false
+                                usingSherpaFallback = false
+                                _state.value = VoiceState.Error(modelState.message)
+                                speak(modelState.message)
+                            }
+                            is SherpaModelState.NotDownloaded -> {
+                                // ensureModel ya arrancó la descarga; se sigue esperando.
+                            }
+                        }
                     }
-                    is VoskModelState.Error -> {
-                        isListening = false
-                        usingVoskFallback = false
-                        _state.value = VoiceState.Error(modelState.message)
-                        speak(modelState.message)
-                    }
-                    is VoskModelState.NotDownloaded -> {
-                        // ensureModel ya arrancó la descarga; se sigue esperando.
-                    }
+                } catch (_: Throwable) {
+                    isListening = false
+                    usingSherpaFallback = false
+                    _state.value = VoiceState.Error("No se pudo descargar el modelo de voz")
                 }
             }
-        }
-    }
-
-    /** Crea el reconocedor Vosk y empieza a escuchar (hilo IO: el modelo
-     * pesa ~40 MB y cargarlo tarda un momento). */
-    private fun startVoskNow() {
-        voskWaitJob?.cancel()
-        voskWaitJob = null
-        if (!isListening) return
-        _state.value = VoiceState.Listening
-        scope.launch(Dispatchers.IO) {
-            if (!isListening) return@launch
-            releaseVosk()
-            if (!isListening) return@launch
-            val vosk = VoskSpeechRecognizer(
-                appContext,
-                onFinalResult = { heard -> onVoskHeard(heard) },
-                onError = { message -> onVoskError(message) },
-                onTimeout = { onVoskTimeout() }
-            )
-            voskRecognizer = vosk
-            // Si start() falla, el motivo ya llega por onError.
-            vosk.start()
-        }
-    }
-
-    /** Libera el reconocedor Vosk (micrófono + modelo). */
-    private fun releaseVosk() {
-        val vosk = voskRecognizer
-        voskRecognizer = null
-        try {
-            vosk?.release()
-        } catch (_: Exception) {
-        }
-    }
-
-    /** Texto final de Vosk: mismo camino que el resultado online. */
-    private fun onVoskHeard(heard: String) {
-        scope.launch {
-            if (!isListening) return@launch
+        } catch (_: Throwable) {
             isListening = false
-            usingVoskFallback = false
-            releaseVosk()
-            val text = heard.trim()
-            if (text.isBlank()) {
+            usingSherpaFallback = false
+            _state.value = VoiceState.Error("No se pudo iniciar el micrófono sin internet")
+        }
+    }
+
+    /** Crea (o reutiliza) el reconocedor Sherpa y empieza a escuchar
+     * en hilo IO: cargar el modelo pesa ~104 MB y tarda un momento. */
+    private fun startSherpaNow() {
+        try {
+            sherpaWaitJob?.cancel()
+            sherpaWaitJob = null
+            if (!isListening) return
+            _state.value = VoiceState.Listening
+            scope.launch(Dispatchers.IO) {
+                try {
+                    if (!isListening) return@launch
+                    val sherpa = getOrCreateSherpa()
+                    if (!isListening) return@launch
+                    // Si start() falla, el motivo ya llega por onError.
+                    sherpa.start()
+                } catch (_: Throwable) {
+                    onSherpaError("No se pudo iniciar el micrófono sin internet")
+                }
+            }
+        } catch (_: Throwable) {
+            isListening = false
+            usingSherpaFallback = false
+            _state.value = VoiceState.Error("No se pudo iniciar el micrófono sin internet")
+        }
+    }
+
+    private fun getOrCreateSherpa(): SherpaSpeechRecognizer {
+        sherpaRecognizer?.let { return it }
+        val created = SherpaSpeechRecognizer(
+            appContext,
+            onFinalResult = { heard -> onSherpaHeard(heard) },
+            onError = { message -> onSherpaError(message) },
+            onTimeout = { onSherpaTimeout() }
+        )
+        sherpaRecognizer = created
+        return created
+    }
+
+    /** Libera el reconocedor Sherpa (micrófono + modelo). Solo en shutdown. */
+    private fun releaseSherpa() {
+        val sherpa = sherpaRecognizer
+        sherpaRecognizer = null
+        try {
+            sherpa?.release()
+        } catch (_: Throwable) {
+        }
+    }
+
+    /** Texto final de Sherpa: mismo camino que el resultado online. */
+    private fun onSherpaHeard(heard: String) {
+        scope.launch {
+            try {
+                if (!isListening) return@launch
+                isListening = false
+                usingSherpaFallback = false
+                val text = heard.trim()
+                if (text.isBlank()) {
+                    _state.value = VoiceState.Idle
+                    speak("No te escuché, inténtalo de nuevo")
+                    return@launch
+                }
+                _state.value = VoiceState.Heard(text)
+                execute(VoiceCommandParser.parse(text))
+            } catch (_: Throwable) {
+                isListening = false
+                usingSherpaFallback = false
+                _state.value = VoiceState.Idle
+                speak("No pude hacer eso, inténtalo de nuevo")
+            }
+        }
+    }
+
+    private fun onSherpaError(message: String) {
+        scope.launch {
+            try {
+                if (!isListening) return@launch
+                isListening = false
+                usingSherpaFallback = false
+                _state.value = VoiceState.Error(message)
+                speak(message)
+            } catch (_: Throwable) {
+                isListening = false
+                usingSherpaFallback = false
+                _state.value = VoiceState.Error(message)
+            }
+        }
+    }
+
+    private fun onSherpaTimeout() {
+        scope.launch {
+            try {
+                if (!isListening) return@launch
+                isListening = false
+                usingSherpaFallback = false
                 _state.value = VoiceState.Idle
                 speak("No te escuché, inténtalo de nuevo")
-                return@launch
+            } catch (_: Throwable) {
+                isListening = false
+                usingSherpaFallback = false
+                _state.value = VoiceState.Idle
             }
-            _state.value = VoiceState.Heard(text)
-            execute(VoiceCommandParser.parse(text))
-        }
-    }
-
-    private fun onVoskError(message: String) {
-        scope.launch {
-            if (!isListening) return@launch
-            isListening = false
-            usingVoskFallback = false
-            releaseVosk()
-            _state.value = VoiceState.Error(message)
-            speak(message)
-        }
-    }
-
-    private fun onVoskTimeout() {
-        scope.launch {
-            if (!isListening) return@launch
-            isListening = false
-            usingVoskFallback = false
-            releaseVosk()
-            _state.value = VoiceState.Idle
-            speak("No te escuché, inténtalo de nuevo")
         }
     }
 
     /** Libera el reconocedor y el TTS. Llamar desde onDestroy. */
     fun shutdown() {
         isListening = false
-        usingVoskFallback = false
-        voskWaitJob?.cancel()
-        voskWaitJob = null
-        releaseVosk()
+        usingSherpaFallback = false
+        sherpaWaitJob?.cancel()
+        sherpaWaitJob = null
+        try {
+            releaseSherpa()
+        } catch (_: Throwable) {
+        }
         try {
             recognizer?.cancel()
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
         }
         try {
             recognizer?.destroy()
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
         }
         recognizer = null
         try {
             textToSpeech?.stop()
             textToSpeech?.shutdown()
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
         }
         textToSpeech = null
         ttsReady = false
@@ -354,115 +475,136 @@ class VoiceAssistant(
         override fun onEvent(eventType: Int, params: Bundle?) {}
 
         override fun onResults(results: Bundle?) {
-            isListening = false
-            usingVoskFallback = false
-            val heard = results
-                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                ?.firstOrNull()
-                ?.trim()
-            if (heard.isNullOrBlank()) {
+            try {
+                isListening = false
+                usingSherpaFallback = false
+                val heard = results
+                    ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    ?.firstOrNull()
+                    ?.trim()
+                if (heard.isNullOrBlank()) {
+                    _state.value = VoiceState.Idle
+                    speak("No te escuché, inténtalo de nuevo")
+                    return
+                }
+                _state.value = VoiceState.Heard(heard)
+                execute(VoiceCommandParser.parse(heard))
+            } catch (_: Throwable) {
+                isListening = false
+                usingSherpaFallback = false
                 _state.value = VoiceState.Idle
-                speak("No te escuché, inténtalo de nuevo")
-                return
+                speak("No pude hacer eso, inténtalo de nuevo")
             }
-            _state.value = VoiceState.Heard(heard)
-            execute(VoiceCommandParser.parse(heard))
         }
 
         override fun onError(error: Int) {
-            isListening = false
-            when (error) {
-                SpeechRecognizer.ERROR_NETWORK -> {
-                    // Sin internet (o sin acceso al servicio de Google):
-                    // respaldo offline con Vosk en vez de rendirse. Solo
-                    // una vez por escucha; si ya se estaba en Vosk, el
-                    // error online ya no aplica y se informa sin más.
-                    if (!usingVoskFallback) {
-                        startVoskListening()
-                    } else {
-                        usingVoskFallback = false
-                        _state.value = VoiceState.Error("Se necesita internet para escuchar")
-                        speak("Se necesita internet para escuchar")
+            try {
+                isListening = false
+                when (error) {
+                    SpeechRecognizer.ERROR_NETWORK -> {
+                        // Sin internet (o sin acceso al servicio de Google):
+                        // respaldo offline con Sherpa en vez de rendirse. Solo
+                        // una vez por escucha; si ya se estaba en Sherpa, el
+                        // error online ya no aplica y se informa sin más.
+                        if (!usingSherpaFallback) {
+                            startSherpaListening()
+                        } else {
+                            usingSherpaFallback = false
+                            _state.value = VoiceState.Error("Se necesita internet para escuchar")
+                            speak("Se necesita internet para escuchar")
+                        }
                     }
-                }
-                SpeechRecognizer.ERROR_NO_MATCH,
-                SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
-                    _state.value = VoiceState.Idle
-                    speak("No te escuché, inténtalo de nuevo")
-                }
-                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
-                    _state.value = VoiceState.Error("Concede el permiso de micrófono en Ajustes")
-                }
-                SpeechRecognizer.ERROR_CLIENT -> {
-                    // Cancelación nuestra (stopListening): no es un error real.
-                    if (_state.value is VoiceState.Listening) {
+                    SpeechRecognizer.ERROR_NO_MATCH,
+                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
                         _state.value = VoiceState.Idle
+                        speak("No te escuché, inténtalo de nuevo")
+                    }
+                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
+                        _state.value = VoiceState.Error("Concede el permiso de micrófono en Ajustes")
+                    }
+                    SpeechRecognizer.ERROR_CLIENT -> {
+                        // Cancelación nuestra (stopListening): no es un error real.
+                        if (_state.value is VoiceState.Listening) {
+                            _state.value = VoiceState.Idle
+                        }
+                    }
+                    else -> {
+                        _state.value = VoiceState.Error("No se pudo escuchar, inténtalo de nuevo")
                     }
                 }
-                else -> {
-                    _state.value = VoiceState.Error("No se pudo escuchar, inténtalo de nuevo")
-                }
+            } catch (_: Throwable) {
+                isListening = false
+                usingSherpaFallback = false
+                _state.value = VoiceState.Error("No se pudo escuchar, inténtalo de nuevo")
             }
         }
     }
 
     private fun execute(command: VoiceCommand) {
-        when (command) {
-            is VoiceCommand.NavigateTo -> executeNavigation(command.placeName)
-            VoiceCommand.Next -> {
-                mediaRepository.skipToNext()
-                speak("Siguiente canción")
+        try {
+            when (command) {
+                is VoiceCommand.NavigateTo -> executeNavigation(command.placeName)
+                VoiceCommand.Next -> {
+                    mediaRepository.skipToNext()
+                    speak("Siguiente canción")
+                }
+                VoiceCommand.Previous -> {
+                    mediaRepository.skipToPrevious()
+                    speak("Canción anterior")
+                }
+                VoiceCommand.Pause -> {
+                    mediaRepository.pause()
+                    speak("Pausa")
+                }
+                VoiceCommand.Play -> {
+                    mediaRepository.play()
+                    speak("Reproduciendo")
+                }
+                is VoiceCommand.PlaySong -> executePlaySong(command.query)
+                is VoiceCommand.PlayPlaylist -> executePlayPlaylist(command.name)
+                is VoiceCommand.PlayArtist -> executePlayArtist(command.name)
+                VoiceCommand.PlayDownloads -> executePlayDownloads()
+                VoiceCommand.PlayLocalLibrary -> executePlayLocalLibrary()
+                VoiceCommand.Unknown -> speak("No entendí, inténtalo de nuevo")
             }
-            VoiceCommand.Previous -> {
-                mediaRepository.skipToPrevious()
-                speak("Canción anterior")
-            }
-            VoiceCommand.Pause -> {
-                mediaRepository.pause()
-                speak("Pausa")
-            }
-            VoiceCommand.Play -> {
-                mediaRepository.play()
-                speak("Reproduciendo")
-            }
-            is VoiceCommand.PlaySong -> executePlaySong(command.query)
-            is VoiceCommand.PlayPlaylist -> executePlayPlaylist(command.name)
-            is VoiceCommand.PlayArtist -> executePlayArtist(command.name)
-            VoiceCommand.PlayDownloads -> executePlayDownloads()
-            VoiceCommand.PlayLocalLibrary -> executePlayLocalLibrary()
-            VoiceCommand.Unknown -> speak("No entendí, inténtalo de nuevo")
+        } catch (_: Throwable) {
+            speak("No pude hacer eso, inténtalo de nuevo")
         }
     }
 
     private fun executeNavigation(spokenName: String) {
-        val normalized = VoiceCommandParser.normalize(spokenName)
-        val places = quickPlacesRepository.places.value
-        val match = places.firstOrNull { place ->
-            val placeName = VoiceCommandParser.normalize(place.name)
-            placeName.contains(normalized) || normalized.contains(placeName)
+        try {
+            val normalized = VoiceCommandParser.normalize(spokenName)
+            val places = quickPlacesRepository.places.value
+            val match = places.firstOrNull { place ->
+                val placeName = VoiceCommandParser.normalize(place.name)
+                placeName.contains(normalized) || normalized.contains(placeName)
+            }
+            if (match != null) {
+                navRepository.launchNavigationTo(appContext, match.address)
+                speak("Abriendo ruta a ${match.name}")
+                return
+            }
+            // Destinos fijos: mismas cadenas que usa la pantalla de Navegación.
+            val fixed = listOf(
+                "casa" to "Casa",
+                "trabajo" to "Trabajo",
+                "gasolinera" to "Gasolinera Cercana",
+                "taller" to "Taller Mecánico"
+            )
+            val fixedMatch = fixed.firstOrNull { (key, _) ->
+                normalized == key || normalized.contains(key)
+            }
+            if (fixedMatch != null) {
+                navRepository.launchNavigationTo(appContext, fixedMatch.second)
+                speak("Abriendo ruta a ${fixedMatch.second}")
+                return
+            }
+            navRepository.launchMapsSearch(appContext, spokenName)
+            speak("No encontré ese lugar, buscando en Maps")
+        } catch (_: Throwable) {
+            speak("No pude hacer eso, inténtalo de nuevo")
         }
-        if (match != null) {
-            navRepository.launchNavigationTo(appContext, match.address)
-            speak("Abriendo ruta a ${match.name}")
-            return
-        }
-        // Destinos fijos: mismas cadenas que usa la pantalla de Navegación.
-        val fixed = listOf(
-            "casa" to "Casa",
-            "trabajo" to "Trabajo",
-            "gasolinera" to "Gasolinera Cercana",
-            "taller" to "Taller Mecánico"
-        )
-        val fixedMatch = fixed.firstOrNull { (key, _) ->
-            normalized == key || normalized.contains(key)
-        }
-        if (fixedMatch != null) {
-            navRepository.launchNavigationTo(appContext, fixedMatch.second)
-            speak("Abriendo ruta a ${fixedMatch.second}")
-            return
-        }
-        navRepository.launchMapsSearch(appContext, spokenName)
-        speak("No encontré ese lugar, buscando en Maps")
     }
 
     /**
@@ -473,30 +615,34 @@ class VoiceAssistant(
      */
     private fun executePlaySong(query: String) {
         scope.launch {
-            val localPlaylist = voiceLibrary.findLocalPlaylist(query)
-            if (localPlaylist != null && localPlaylist.songs.isNotEmpty()) {
-                mediaRepository.playQueue(localPlaylist.songs)
-                speak("Reproduciendo la playlist ${localPlaylist.title}")
-                return@launch
-            }
-            val localSong = voiceLibrary.searchLocalSong(query)
-            if (localSong != null) {
-                mediaRepository.playSong(localSong)
-                speak("Poniendo ${localSong.title}")
-                return@launch
-            }
-            val artistSongs = voiceLibrary.songsByArtist(query)
-            if (artistSongs.isNotEmpty()) {
-                mediaRepository.playQueue(artistSongs)
-                speak("Poniendo canciones de ${artistSongs.first().artist}")
-                return@launch
-            }
-            val song = searchSong(query)
-            if (song != null) {
-                mediaRepository.playSong(song)
-                speak("Poniendo ${song.title}")
-            } else {
-                speak("No encontré esa canción")
+            try {
+                val localPlaylist = voiceLibrary.findLocalPlaylist(query)
+                if (localPlaylist != null && localPlaylist.songs.isNotEmpty()) {
+                    mediaRepository.playQueue(localPlaylist.songs)
+                    speak("Reproduciendo la playlist ${localPlaylist.title}")
+                    return@launch
+                }
+                val localSong = voiceLibrary.searchLocalSong(query)
+                if (localSong != null) {
+                    mediaRepository.playSong(localSong)
+                    speak("Poniendo ${localSong.title}")
+                    return@launch
+                }
+                val artistSongs = voiceLibrary.songsByArtist(query)
+                if (artistSongs.isNotEmpty()) {
+                    mediaRepository.playQueue(artistSongs)
+                    speak("Poniendo canciones de ${artistSongs.first().artist}")
+                    return@launch
+                }
+                val song = searchSong(query)
+                if (song != null) {
+                    mediaRepository.playSong(song)
+                    speak("Poniendo ${song.title}")
+                } else {
+                    speak("No encontré esa canción")
+                }
+            } catch (_: Throwable) {
+                speak("No pude hacer eso, inténtalo de nuevo")
             }
         }
     }
@@ -504,23 +650,27 @@ class VoiceAssistant(
     /** "pon la playlist X": local primero, remota de YouTube Music después. */
     private fun executePlayPlaylist(name: String) {
         scope.launch {
-            val local = voiceLibrary.findLocalPlaylist(name)
-            if (local != null) {
-                if (local.songs.isEmpty()) {
-                    speak("La playlist ${local.title} no tiene canciones")
-                } else {
-                    mediaRepository.playQueue(local.songs)
-                    speak("Reproduciendo la playlist ${local.title}")
+            try {
+                val local = voiceLibrary.findLocalPlaylist(name)
+                if (local != null) {
+                    if (local.songs.isEmpty()) {
+                        speak("La playlist ${local.title} no tiene canciones")
+                    } else {
+                        mediaRepository.playQueue(local.songs)
+                        speak("Reproduciendo la playlist ${local.title}")
+                    }
+                    return@launch
                 }
-                return@launch
+                val remote = voiceLibrary.findRemotePlaylist(name)
+                if (remote != null && remote.songs.isNotEmpty()) {
+                    mediaRepository.playQueue(remote.songs)
+                    speak("Reproduciendo la playlist ${remote.title}")
+                    return@launch
+                }
+                speak("No encontré la playlist $name")
+            } catch (_: Throwable) {
+                speak("No pude hacer eso, inténtalo de nuevo")
             }
-            val remote = voiceLibrary.findRemotePlaylist(name)
-            if (remote != null && remote.songs.isNotEmpty()) {
-                mediaRepository.playQueue(remote.songs)
-                speak("Reproduciendo la playlist ${remote.title}")
-                return@launch
-            }
-            speak("No encontré la playlist $name")
         }
     }
 
@@ -528,18 +678,22 @@ class VoiceAssistant(
      * cae a la búsqueda online (primer resultado). */
     private fun executePlayArtist(name: String) {
         scope.launch {
-            val songs = voiceLibrary.songsByArtist(name)
-            if (songs.isNotEmpty()) {
-                mediaRepository.playQueue(songs)
-                speak("Poniendo canciones de ${songs.first().artist}")
-                return@launch
-            }
-            val song = searchSong(name)
-            if (song != null) {
-                mediaRepository.playSong(song)
-                speak("Poniendo ${song.title}")
-            } else {
-                speak("No encontré música de $name")
+            try {
+                val songs = voiceLibrary.songsByArtist(name)
+                if (songs.isNotEmpty()) {
+                    mediaRepository.playQueue(songs)
+                    speak("Poniendo canciones de ${songs.first().artist}")
+                    return@launch
+                }
+                val song = searchSong(name)
+                if (song != null) {
+                    mediaRepository.playSong(song)
+                    speak("Poniendo ${song.title}")
+                } else {
+                    speak("No encontré música de $name")
+                }
+            } catch (_: Throwable) {
+                speak("No pude hacer eso, inténtalo de nuevo")
             }
         }
     }
@@ -547,32 +701,40 @@ class VoiceAssistant(
     /** "pon mis descargas": toda la música descargada (offline) en cola. */
     private fun executePlayDownloads() {
         scope.launch {
-            val songs = voiceLibrary.downloadedSongs()
-            if (songs.isEmpty()) {
-                speak("No tienes canciones descargadas")
-                return@launch
+            try {
+                val songs = voiceLibrary.downloadedSongs()
+                if (songs.isEmpty()) {
+                    speak("No tienes canciones descargadas")
+                    return@launch
+                }
+                mediaRepository.playQueue(songs)
+                speak(
+                    if (songs.size == 1) "Poniendo tu descarga, 1 canción"
+                    else "Poniendo tus descargas, ${songs.size} canciones"
+                )
+            } catch (_: Throwable) {
+                speak("No pude hacer eso, inténtalo de nuevo")
             }
-            mediaRepository.playQueue(songs)
-            speak(
-                if (songs.size == 1) "Poniendo tu descarga, 1 canción"
-                else "Poniendo tus descargas, ${songs.size} canciones"
-            )
         }
     }
 
     /** "pon mis canciones" / "música local": biblioteca local completa en cola. */
     private fun executePlayLocalLibrary() {
         scope.launch {
-            val songs = voiceLibrary.allLocalSongs()
-            if (songs.isEmpty()) {
-                speak("No encontré música en el dispositivo")
-                return@launch
+            try {
+                val songs = voiceLibrary.allLocalSongs()
+                if (songs.isEmpty()) {
+                    speak("No encontré música en el dispositivo")
+                    return@launch
+                }
+                mediaRepository.playQueue(songs)
+                speak(
+                    if (songs.size == 1) "Poniendo tu música local, 1 canción"
+                    else "Poniendo tu música local, ${songs.size} canciones"
+                )
+            } catch (_: Throwable) {
+                speak("No pude hacer eso, inténtalo de nuevo")
             }
-            mediaRepository.playQueue(songs)
-            speak(
-                if (songs.size == 1) "Poniendo tu música local, 1 canción"
-                else "Poniendo tu música local, ${songs.size} canciones"
-            )
         }
     }
 
@@ -593,7 +755,7 @@ class VoiceAssistant(
                         else -> null
                     }
                 }
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
                 null
             }
         }
@@ -607,7 +769,7 @@ class VoiceAssistant(
             tts.stop()
             utteranceCounter++
             tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "divinedeck-voice-$utteranceCounter")
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
         }
     }
 }
