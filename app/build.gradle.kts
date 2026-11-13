@@ -151,7 +151,11 @@ dependencies {
   // va en el APK: se descarga una sola vez desde Hugging Face
   // (ver SherpaModelManager). Solo JitPack: la coordenada de Maven
   // Central con el mismo nombre es de un tercero sin relación.
+  // Coordenada de 3 segmentos: JitPack publica el AAR precompilado
+  // (jitpack.yml lo descarga del release) como
+  // com.github.k2-fsa:sherpa-onnx:v2.0.1. Un cuarto segmento haría
+  // que Gradle leyera "sherpa-onnx" como versión (run 37 falló por eso).
   // Sin dependencias adicionales: el AAR ya trae ONNX Runtime y JNI.
-  implementation("com.github.k2-fsa:sherpa-onnx:sherpa-onnx:v2.0.1")
+  implementation("com.github.k2-fsa:sherpa-onnx:v2.0.1")
 
 }
