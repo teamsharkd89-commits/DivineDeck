@@ -2,6 +2,7 @@ package com.divinedeck.launcher.feature.voice.data
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.speech.RecognitionListener
@@ -106,7 +107,7 @@ class VoiceAssistant(
                 setRecognitionListener(listener)
             }
             recognizer = speechRecognizer
-            val intent = RecognizerIntent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(
                     RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                     RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
