@@ -49,8 +49,32 @@ internal object OfflineSearchMatcher {
      */
     val GENERIC_WORDS = setOf(
         "calle", "avenida", "av", "andador", "privada", "circuito",
-        "calzada", "boulevard", "blvd", "colonia"
+        "calzada", "boulevard", "blvd", "colonia",
+        // Tipos de asentamiento (build 28): "fraccionamiento" faltaba y
+        // rompía "begonia 32 fraccionamiento jacarandas" — sin él el
+        // ancla de colonia no cubría "Jacarandas" y la calle quedaba
+        // fuera. "fracc" es su abreviatura habitual en direcciones.
+        "fraccionamiento", "fracc", "residencial", "unidad", "ejido",
+        "poblado"
     )
+
+    /** Palabras de tipo de vía / asentamiento que marcan una consulta
+     * como dirección (no como nombre de lugar): con número de casa o
+     * con una de estas, Nominatim es el motor online primario. */
+    val ADDRESS_WORDS = setOf(
+        "calle", "avenida", "av", "andador", "privada", "circuito",
+        "calzada", "boulevard", "blvd", "colonia", "fraccionamiento",
+        "fracc", "ejidal", "residencial", "unidad", "ejido", "poblado"
+    )
+
+    /** ¿La consulta parece una dirección? Número de casa o palabra de
+     * tipo de vía / asentamiento. */
+    fun isAddressLike(tokens: List<String>): Boolean =
+        tokens.any { it.matches(Regex("^\\d{1,5}[a-zA-Z]?$")) } ||
+            tokens.any { it in ADDRESS_WORDS }
+
+    fun isAddressLikeQuery(query: String): Boolean =
+        isAddressLike(tokenizeQuery(query))
 
     /** Una colonia de nombre exacto más lejos que esto de la ubicación
      * es sospechosa: puede ser la homónima de otra localidad. */
@@ -89,7 +113,10 @@ internal object OfflineSearchMatcher {
      * común de ≥5 letras ("caminando"/"camino" comparten "camin"),
      * 1.5 distancia de edición 1, 1.0 distancia 2 o trigramas ≥ 0.5,
      * 0.0 sin parecido. Si la palabra es genérica ("calle", "colonia",
-     * …) la puntuación se topa en 1.0.
+     * …) la puntuación se topa en 1.0. La distancia 2 exige además
+     * prefijo común de ≥2 letras y token de ≥6 letras: sin eso "jauja"
+     * empataba con "baja"/"caja" (distancia 2, prefijo 0) y esa basura
+     * llenaba los 8 primeros puestos (build 28).
      */
     fun bestTokenScore(token: String, word: String): Double {
         val raw = rawTokenScore(token, word)
@@ -107,7 +134,9 @@ internal object OfflineSearchMatcher {
         if (commonPrefixLength(token, word) >= 5) return 2.0
         val distance = levenshtein(token, word, maxDistance = 2)
         if (distance == 1) return 1.5
-        if (distance == 2 && token.length >= 5 && word.length >= 4) return 1.0
+        if (distance == 2 && token.length >= 6 && word.length >= 4 &&
+            commonPrefixLength(token, word) >= 2
+        ) return 1.0
         if (token.length >= 3 && word.length >= 3 &&
             trigramSimilarity(token, word) >= 0.5
         ) return 1.0

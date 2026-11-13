@@ -52,6 +52,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.divinedeck.launcher.BuildConfig
 import com.divinedeck.launcher.core.designsystem.components.AutomotiveCard
 import com.divinedeck.launcher.core.designsystem.components.AutomotivePrimaryButton
 import com.divinedeck.launcher.core.designsystem.components.AutomotiveSecondaryButton
@@ -348,6 +349,18 @@ fun NavCenterScreen(
             ) {
                 // Chip de conectividad: siempre visible en esta pantalla.
                 ConnectivityChip(isOnline = uiState.isOnline)
+                // Número de build (mismo que el tag del release
+                // debug-06.11-<n>): para confirmar qué build está
+                // instalada al probar la búsqueda.
+                Text(
+                    text = if (BuildConfig.GITHUB_RUN_NUMBER > 0) {
+                        "build ${BuildConfig.GITHUB_RUN_NUMBER}"
+                    } else {
+                        "build local"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = palette.textMuted
+                )
                 Spacer(modifier = Modifier.height(8.dp))
 
                 OutlinedTextField(
@@ -430,7 +443,7 @@ fun NavCenterScreen(
                                 }
                             } else {
                                 Text(
-                                    "Sin resultados para «${uiState.searchQuery}»",
+                                    "Sin resultados en Tepic para «${uiState.searchQuery}»",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = palette.textSecondary
                                 )

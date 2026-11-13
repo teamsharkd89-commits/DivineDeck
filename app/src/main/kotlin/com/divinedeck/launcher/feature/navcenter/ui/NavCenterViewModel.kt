@@ -309,7 +309,8 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    // --- Búsqueda (Photon online; JSON local offline, con debounce) ---
+    // --- Búsqueda (offline siempre primero; online: Nominatim para
+    // direcciones, Photon para nombres/lugares; con debounce) ---
 
     fun onSearchQueryChange(query: String) {
         _uiState.update { it.copy(searchQuery = query, searchError = null) }
@@ -341,10 +342,24 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
                 }
                 return@launch
             }
-            // 2. Online: Photon con bbox de Tepic; si lanza (incluido su
-            // timeout de 8 s), un solo intento de respaldo con Nominatim
-            // (1 req/s, no autocompletado; también con viewbox de Tepic).
-            val photonResults: List<NavPlace>? = try {
+            // 2. Online (build 28): el motor depende de la consulta.
+            // Dirección (número de casa o palabra de vía/asentamiento):
+            // Nominatim primero — Photon devuelve ruido con números
+            // ("camichin de jauja 32 ejidal" → "Salón Ejidal"). Nombre
+            // o lugar ("Bodega Aurrerá", "Catedral", "Forum"): Photon
+            // primero, que es su fuerte. Si el primario lanza (incluido
+            // su timeout de 8 s) O devuelve vacío, se intenta el otro:
+            // vacío no es fallo, pero el otro motor puede responder.
+            // A Nominatim se le añade ", Tepic, Nayarit" si no trae
+            // ciudad, y se le quita el prefijo "Colonia " ("Colonia
+            // Centro, Tepic" da 0; "Centro Histórico, Tepic" sí da 1).
+            val addressLike = OfflineSearchMatcher.isAddressLikeQuery(trimmed)
+            val nominatimQuery = trimmed.removePrefix("Colonia ").trim()
+                .let { q ->
+                    if (q.contains("tepic", ignoreCase = true)) q
+                    else "$q, Tepic, Nayarit"
+                }
+            suspend fun tryPhoton(): List<NavPlace>? = try {
                 withContext(Dispatchers.IO) {
                     PhotonApi.search(trimmed, _uiState.value.currentLocation)
                 }
@@ -352,19 +367,36 @@ class NavCenterViewModel(application: Application) : AndroidViewModel(applicatio
                 Log.w(TAG, "Búsqueda Photon falló: ${e.message}")
                 null
             }
-            val onlineResults: List<NavPlace>? = if (photonResults != null) {
-                photonResults
-            } else {
-                // "Colonia Centro, Tepic" da 0 resultados en Nominatim;
-                // "Centro Histórico, Tepic" sí da 1: quitar el prefijo.
-                val nominatimQuery = trimmed.removePrefix("Colonia ").trim()
-                try {
-                    withContext(Dispatchers.IO) {
-                        NominatimApi.search(nominatimQuery, _uiState.value.currentLocation)
+            suspend fun tryNominatim(): List<NavPlace>? = try {
+                withContext(Dispatchers.IO) {
+                    NominatimApi.search(nominatimQuery, _uiState.value.currentLocation)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Búsqueda Nominatim falló: ${e.message}")
+                null
+            }
+            val onlineResults: List<NavPlace>? = if (addressLike) {
+                val primary = tryNominatim()
+                if (!primary.isNullOrEmpty()) {
+                    Log.d(TAG, "Búsqueda online: Nominatim (${primary.size}) para \"$trimmed\"")
+                    primary
+                } else {
+                    val secondary = tryPhoton()
+                    if (secondary != null) {
+                        Log.d(TAG, "Búsqueda online: Photon (${secondary.size}) tras Nominatim vacío/fallo para \"$trimmed\"")
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Búsqueda Nominatim falló: ${e.message}")
-                    null
+                    secondary
+                }
+            } else {
+                val primary = tryPhoton()
+                if (!primary.isNullOrEmpty()) {
+                    primary
+                } else {
+                    val secondary = tryNominatim()
+                    if (secondary != null) {
+                        Log.d(TAG, "Búsqueda online: Nominatim (${secondary.size}) tras Photon vacío/fallo para \"$trimmed\"")
+                    }
+                    secondary
                 }
             }
             // 3. Fusión offline-primero: lo local arriba, lo online solo

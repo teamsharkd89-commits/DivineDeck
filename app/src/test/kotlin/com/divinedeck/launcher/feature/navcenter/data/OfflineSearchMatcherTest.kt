@@ -55,6 +55,13 @@ class OfflineSearchMatcherTest {
         entry("Crucero de Camichin", kind = "colonia", lat = 21.4658, lon = -104.8009),
         entry("Benito Juárez", kind = "colonia", lat = 21.4975, lon = -104.9078),
         entry("Plaza Fórum", kind = "poi", lat = 21.51, lon = -104.89),
+        // Calle y colonia del fallo reportado en build 27 (build 28):
+        // "begonia 32 fraccionamiento jacarandas" no daba nada porque
+        // "fraccionamiento" no estaba en GENERIC_WORDS.
+        entry("Calle Begonia", lat = 21.4860363, lon = -104.8537217),
+        entry("Fraccionamiento Jacarandas", kind = "colonia", lat = 21.4829887, lon = -104.8546324),
+        entry("Calle Baja", lat = 21.51, lon = -104.89),
+        entry("Calle Caja", lat = 21.51, lon = -104.89),
         entry("Mercado Morelos", kind = "poi", lat = 21.51, lon = -104.89),
         entry("Hospital General", kind = "poi", lat = 21.51, lon = -104.89),
         // Basura que el matcher viejo (o un substring sin tope) colaba:
@@ -293,5 +300,65 @@ class OfflineSearchMatcherTest {
         )
         assertTrue(results.isNotEmpty())
         assertEquals("Calle Camichín de Jauja", results[0].name)
+    }
+
+    // --- Fallo reportado en build 27 (build 28) ---
+
+    @Test
+    fun `fraccionamiento es palabra generica`() {
+        assertTrue("fraccionamiento" in OfflineSearchMatcher.GENERIC_WORDS)
+        assertTrue("fracc" in OfflineSearchMatcher.GENERIC_WORDS)
+    }
+
+    @Test
+    fun `begonia 32 fraccionamiento jacarandas - jacarandas ancla la colonia`() {
+        // Con "fraccionamiento" en GENERIC_WORDS, el nombre distintivo
+        // de "Fraccionamiento Jacarandas" es solo [jacarandas] y el
+        // token lo cubre al 100 %: antes la cobertura era 0.5 y no
+        // había ancla, y la calle quedaba fuera.
+        val match = OfflineSearchMatcher.findColonia(
+            listOf("begonia", "fraccionamiento", "jacarandas"),
+            dataset, near = 21.5 to -104.9
+        )
+        assertEquals("jacarandas", match?.token)
+        assertEquals("Fraccionamiento Jacarandas", match?.name)
+    }
+
+    @Test
+    fun `begonia con fraccionamiento encuentra Calle Begonia primero`() {
+        // Sin número ni colonia: [begonia, fraccionamiento] con el
+        // centroide de Jacarandas como `near` (el flujo completo con
+        // número y ancla se verifica en el harness Python contra el
+        // dataset real v2).
+        val results = OfflineSearchMatcher.searchTokens(
+            dataset,
+            listOf("begonia", "fraccionamiento"),
+            near = 21.4830 to -104.8546,
+            limit = 8
+        )
+        assertTrue(results.isNotEmpty())
+        assertEquals("Calle Begonia", results[0].name)
+    }
+
+    @Test
+    fun `jauja con distancia 2 no confunde baja ni caja`() {
+        // "jauja"–"baja" y "jauja"–"caja" son distancia 2 con prefijo
+        // común 0: desde build 28 eso ya no puntúa y la basura no
+        // llena los 8 primeros puestos.
+        assertEquals(0.0, OfflineSearchMatcher.bestTokenScore("jauja", "baja"), 0.001)
+        assertEquals(0.0, OfflineSearchMatcher.bestTokenScore("jauja", "caja"), 0.001)
+        val results = search("jauja")
+        assertTrue(results.none { it.name == "Calle Baja" || it.name == "Calle Caja" })
+    }
+
+    @Test
+    fun `consulta de direccion se detecta como address-like`() {
+        assertTrue(OfflineSearchMatcher.isAddressLikeQuery("begonia 32 fraccionamiento jacarandas"))
+        assertTrue(OfflineSearchMatcher.isAddressLikeQuery("camichin de jauja 32 ejidal"))
+        assertTrue(OfflineSearchMatcher.isAddressLikeQuery("Av. Juárez 123"))
+        assertTrue(OfflineSearchMatcher.isAddressLikeQuery("calle juarez centro"))
+        assertTrue(!OfflineSearchMatcher.isAddressLikeQuery("bodega aurrera"))
+        assertTrue(!OfflineSearchMatcher.isAddressLikeQuery("catedral"))
+        assertTrue(!OfflineSearchMatcher.isAddressLikeQuery("forum"))
     }
 }

@@ -1,6 +1,7 @@
 package com.divinedeck.launcher.feature.navcenter.data
 
 import android.content.Context
+import android.util.Log
 import com.divinedeck.launcher.feature.navcenter.domain.NavLatLng
 import com.divinedeck.launcher.feature.navcenter.domain.NavPlace
 import com.divinedeck.launcher.feature.navcenter.domain.PoiKind
@@ -42,20 +43,34 @@ class OfflineSearchData(context: Context) {
     private val json = Json { ignoreUnknownKeys = true }
     private var places: List<OfflinePlace>? = null
 
-    /** Carga el JSON (una sola vez, en IO). Devuelve false si no hay datos. */
+    /** Carga el JSON (una sola vez, en IO). Devuelve false si no hay datos.
+     * Si la copia descargada existe pero no se puede leer/parsear, se
+     * vuelve al asset empaquetado en vez de quedarse sin datos para
+     * siempre (build 28: antes el `catch` tragaba la excepción en
+     * silencio y la búsqueda offline moría sin dejar rastro). */
     suspend fun load(): Boolean {
         if (places != null) return true
         val loaded = withContext(Dispatchers.IO) {
+            val downloadedFile = File(
+                File(appContext.filesDir, OfflineNavConstants.OFFLINE_DIR),
+                OfflineNavConstants.SEARCH_FILE_NAME
+            ).takeIf { it.exists() && it.length() > 0 }
+            if (downloadedFile != null) {
+                try {
+                    return@withContext json.decodeFromString<List<OfflinePlace>>(
+                        downloadedFile.readText()
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "JSON offline descargado ilegible, uso el asset: ${e.message}")
+                }
+            }
             try {
-                val downloaded = File(
-                    File(appContext.filesDir, OfflineNavConstants.OFFLINE_DIR),
-                    OfflineNavConstants.SEARCH_FILE_NAME
-                ).takeIf { it.exists() && it.length() > 0 }?.readText()
-                val text = downloaded ?: appContext.assets
+                val text = appContext.assets
                     .open(OfflineNavConstants.SEARCH_ASSET_PATH)
                     .bufferedReader().use { it.readText() }
                 json.decodeFromString<List<OfflinePlace>>(text)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.w(TAG, "No se pudo cargar el JSON offline (asset): ${e.message}")
                 null
             }
         }
@@ -82,8 +97,13 @@ class OfflineSearchData(context: Context) {
      * 31, Ejidal"); un token que nombra una colonia del dataset se
      * usa como ancla: solo entran candidatos a menos de 6 km de su
      * centroide, para preferir el tramo de la calle en esa colonia.
-     * Si la búsqueda sin número/colonia no da nada, se reintenta con
-     * la consulta completa.
+     * Si la búsqueda sin número/colonia no da nada, o la consulta
+     * parece una dirección y no entró ninguna calle, se reintenta en
+     * cadena: sin ancla de colonia, con la consulta completa, y por
+     * último con el token más informativo solo (ver el cuerpo de
+     * `search`). Las calles del dataset v2 traen además la colonia en
+     * `detail` ("Fraccionamiento Jacarandas"), que se muestra como
+     * detalle del resultado cuando no hay número de casa.
      */
     fun search(query: String, near: NavLatLng?, limit: Int = 8): List<NavPlace> {
         val all = places ?: return emptyList()
@@ -152,18 +172,74 @@ class OfflineSearchData(context: Context) {
             emptyList()
         }
         var usedFallback = false
-        if (matched.isEmpty() && matchTokens != tokens) {
+        // Cadena de respaldo (build 28): la búsqueda anclada no puede
+        // ser la última palabra cuando la calle está en los datos.
+        // Se dispara si no hay nada, o si la consulta parece una
+        // dirección y ninguna calle entró (p. ej. solo devolvió la
+        // colonia). Pasos: (b) sin ancla de colonia sobre todo el
+        // dataset, (c) consulta completa sin ancla, (d) el token más
+        // informativo solo. Cada paso se registra para diagnóstico.
+        val looksLikeAddress = OfflineSearchMatcher.isAddressLike(tokens)
+        val noStreetMatched = matched.none { it.kind == "street" }
+        var needsFallback = matched.isEmpty() || (looksLikeAddress && noStreetMatched)
+        if (needsFallback && colonia != null && matchTokens.isNotEmpty()) {
+            val retry = OfflineSearchMatcher.searchTokens(
+                entries,
+                matchTokens,
+                near?.let { it.latitude to it.longitude },
+                limit
+            )
+            Log.d(TAG, "OfflineSearch paso b (sin ancla): ${retry.size} resultados para \"$query\"")
+            if (retry.isNotEmpty()) {
+                matched = retry
+                usedFallback = true
+                needsFallback = matched.isEmpty() || (looksLikeAddress && matched.none { it.kind == "street" })
+            }
+        }
+        if (needsFallback && matchTokens != tokens) {
             // Reintento con la consulta completa y sin filtro de colonia
             // (por si el número o la colonia formaban parte del nombre:
             // "Calle 5 de Mayo").
-            matched = OfflineSearchMatcher.searchTokens(
+            val retry = OfflineSearchMatcher.searchTokens(
                 entries,
                 tokens,
                 near?.let { it.latitude to it.longitude },
                 limit
             )
-            usedFallback = true
+            Log.d(TAG, "OfflineSearch paso c (consulta completa): ${retry.size} resultados para \"$query\"")
+            if (retry.isNotEmpty()) {
+                matched = retry
+                usedFallback = true
+                needsFallback = matched.isEmpty() || (looksLikeAddress && matched.none { it.kind == "street" })
+            }
         }
+        if (needsFallback && looksLikeAddress) {
+            // Último recurso, SOLO para direcciones: el token más
+            // informativo solo (el más largo sin contar stop words ni
+            // genéricas), y solo calles. Sin la restricción, una
+            // consulta de nombre inexistente ("parque puerta paraíso")
+            // colaba POIs por un solo token ("PARAÍSO17") y dejaba de
+            // dar el "Sin resultados en Tepic" honesto. No puede dar
+            // vacío si la calle está en el dataset.
+            val singleToken = tokens
+                .filter { it !in OfflineSearchMatcher.STOP_WORDS }
+                .filter { it !in OfflineSearchMatcher.GENERIC_WORDS }
+                .maxByOrNull { it.length }
+            if (singleToken != null) {
+                val retry = OfflineSearchMatcher.searchTokens(
+                    entries,
+                    listOf(singleToken),
+                    near?.let { it.latitude to it.longitude },
+                    limit
+                ).filter { it.kind == "street" }
+                Log.d(TAG, "OfflineSearch paso d (token \"$singleToken\", solo calles): ${retry.size} resultados para \"$query\"")
+                if (retry.isNotEmpty()) {
+                    matched = retry
+                    usedFallback = true
+                }
+            }
+        }
+        Log.d(TAG, "OfflineSearch \"$query\": ${matched.size} resultados (fallback=$usedFallback)")
         // En el reintento la colonia ya no vale como ancla: no se añade
         // al detalle (la calle encontrada puede estar en otra colonia).
         val detailColonia = if (usedFallback) null else colonia?.name
@@ -274,6 +350,7 @@ class OfflineSearchData(context: Context) {
     }
 
     companion object {
+        private const val TAG = "OfflineSearch"
         /** Radio alrededor del centroide de una colonia nombrada en la
          * consulta: solo las calles dentro entran en la búsqueda. */
         private const val COLONIA_ANCHOR_RADIUS_METERS = 6_000.0

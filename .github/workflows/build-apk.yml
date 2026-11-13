@@ -74,6 +74,7 @@ jobs:
       - name: Build debug APK
         env:
           DIVINEDECK_DEBUG_KEYSTORE: ${{ github.workspace }}/debug.keystore
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: |
           chmod +x gradlew
           ./gradlew :app:assembleDebug --stacktrace

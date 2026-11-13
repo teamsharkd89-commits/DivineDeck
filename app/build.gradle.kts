@@ -15,6 +15,10 @@ android {
     targetSdk = 35
     versionCode = 1
     versionName = "1.0"
+    // Número de build de GitHub Actions (el mismo que usa el tag
+    // debug-06.11-<run_number>): se muestra en la pantalla de
+    // Navegación para saber qué build está instalada. En local es 0.
+    buildConfigField("int", "GITHUB_RUN_NUMBER", (System.getenv("GITHUB_RUN_NUMBER") ?: "0"))
   }
 
   signingConfigs {
