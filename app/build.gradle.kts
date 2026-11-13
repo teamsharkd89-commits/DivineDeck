@@ -16,8 +16,7 @@ android {
     versionCode = 1
     versionName = "1.0"
     // Número de build de GitHub Actions (el mismo que usa el tag
-    // debug-06.11-<run_number>): se muestra en la pantalla de
-    // Navegación para saber qué build está instalada. En local es 0.
+    // debug-06.11-<run_number>). En local es 0.
     buildConfigField("int", "GITHUB_RUN_NUMBER", (System.getenv("GITHUB_RUN_NUMBER") ?: "0"))
   }
 
@@ -48,9 +47,6 @@ android {
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
-    // Ferrostar 0.59.0 exige core library desugaring (usa java.time y otras
-    // APIs modernas; su minSdk es 25 y el de DivineDeck es 26).
-    isCoreLibraryDesugaringEnabled = true
   }
   buildFeatures {
     compose = true
@@ -81,7 +77,6 @@ dependencies {
 
   // Core Android dependencies
   implementation(libs.androidx.core.ktx)
-  coreLibraryDesugaring(libs.desugar.jdk.libs)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.activity.compose)
 
@@ -145,23 +140,4 @@ dependencies {
   implementation(libs.ktor.serialization.kotlinx.json)
   implementation(libs.kotlinx.serialization.json)
 
-  // Navegación embebida (Ferrostar 0.59.0 + MapLibre Compose 0.13.0):
-  // mapa OpenFreeMap, rutas Valhalla (servidor gratuito FOSSGIS), búsqueda
-  // Photon — todo gratis, sin llaves. Ferrostar usa MapLibre Compose (no el
-  // SDK clásico de MapLibre): el mapa lo dibuja
-  // DynamicallyOrientingNavigationView, no un MapView clásico.
-  implementation(platform(libs.okhttp.bom))
-  implementation(libs.ferrostar.core)
-  implementation(libs.ferrostar.ui.compose)
-  implementation(libs.ferrostar.ui.maplibre)
-  implementation(libs.ferrostar.google.play.services)
-  implementation(libs.maplibre.compose)
-
-  // Modo offline (Tepic): motor Valhalla en el dispositivo (valhalla-mobile
-  // 0.6.4 + modelos 0.6.0 + osrm-openapi) para rutas sin internet. El mapa
-  // offline usa el OfflineManager que ya trae MapLibre Compose 0.13.0.
-  implementation(libs.valhalla.mobile)
-  implementation(libs.valhalla.models)
-  implementation(libs.valhalla.models.config)
-  implementation(libs.osrm.openapi)
 }

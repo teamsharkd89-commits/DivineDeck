@@ -38,6 +38,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.divinedeck.launcher.feature.navcenter.service.ReturnHomeFloatingService
+import kotlinx.coroutines.flow.MutableStateFlow
 import com.divinedeck.launcher.core.designsystem.components.AutomotiveBottomDock
 import com.divinedeck.launcher.core.designsystem.components.CockpitStatusBar
 import com.divinedeck.launcher.core.designsystem.theme.CockpitLayout
@@ -88,8 +90,14 @@ class MainActivity : ComponentActivity() {
     private val settingsRepository by lazy { SettingsRepositoryImpl(applicationContext) }
     private val launcherExitManager by lazy { LauncherExitManager(this) }
 
+    // Señal de "volver al inicio" del botón flotante: el servicio lanza
+    // MainActivity (singleTask) con el extra navigate_home; onCreate y
+    // onNewIntent la elevan aquí y el contenido navega al Cockpit.
+    private val navigateHomeSignal = MutableStateFlow(0L)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleNavigateHomeIntent(intent)
 
         // Bloqueo estricto de orientación HORIZONTAL (LANDSCAPE)
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
@@ -111,11 +119,20 @@ class MainActivity : ComponentActivity() {
             val speedReading by gpsRepository.speedReading.collectAsState()
             val gpsStatus by gpsRepository.gpsStatus.collectAsState()
             val chevyState by chevy3DRenderer.modelState.collectAsState()
+            val homeSignal by navigateHomeSignal.collectAsState()
 
             var currentRoute by remember { mutableStateOf(DivineDeckRoute.COCKPIT) }
             var musicDestination by remember { mutableStateOf(MusicCenterDestination.DEFAULT) }
             var showExitDialog by remember { mutableStateOf(false) }
             var showGpsRationaleDialog by remember { mutableStateOf(false) }
+
+            // Vuelta al inicio desde el botón flotante (o la notificación):
+            // aterriza siempre en el Cockpit, no en la última ruta abierta.
+            LaunchedEffect(homeSignal) {
+                if (homeSignal > 0) {
+                    currentRoute = DivineDeckRoute.COCKPIT
+                }
+            }
 
             // Contrato de permisos en tiempo de ejecución (FINE y COARSE location)
             val locationPermissionLauncher = rememberLauncherForActivityResult(
@@ -336,6 +353,32 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNavigateHomeIntent(intent)
+    }
+
+    private fun handleNavigateHomeIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(
+                ReturnHomeFloatingService.EXTRA_NAVIGATE_HOME,
+                false
+            ) == true
+        ) {
+            navigateHomeSignal.value = System.currentTimeMillis()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // El botón flotante nunca debe quedarse vivo si DivineDeck ya está
+        // al frente (vuelta por Recientes, atrás o toque del botón): solo
+        // se detiene si realmente está corriendo.
+        if (ReturnHomeFloatingService.isRunning) {
+            ReturnHomeFloatingService.stop(this)
         }
     }
 

@@ -25,13 +25,6 @@ newpipeExtractor = "v0.26.3"
 nanojson = "e9d656ddb49a412a5a0a5d5ef20ca7ef09549996"
 jsoup = "1.18.3"
 rhino = "1.8.0"
-ferrostar = "0.59.0"
-maplibreCompose = "0.13.0"
-valhallaMobile = "0.6.4"
-valhallaModels = "0.6.0"
-osrm = "0.0.10"
-okhttpBom = "5.3.2"
-desugar = "2.1.5"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
@@ -77,17 +70,6 @@ ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "kto
 ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
 ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
-ferrostar-core = { group = "com.stadiamaps.ferrostar", name = "core", version.ref = "ferrostar" }
-ferrostar-ui-compose = { group = "com.stadiamaps.ferrostar", name = "ui-compose", version.ref = "ferrostar" }
-ferrostar-ui-maplibre = { group = "com.stadiamaps.ferrostar", name = "ui-maplibre", version.ref = "ferrostar" }
-ferrostar-google-play-services = { group = "com.stadiamaps.ferrostar", name = "google-play-services", version.ref = "ferrostar" }
-maplibre-compose = { group = "org.maplibre.compose", name = "maplibre-compose-android", version.ref = "maplibreCompose" }
-valhalla-mobile = { group = "io.github.rallista", name = "valhalla-mobile", version.ref = "valhallaMobile" }
-valhalla-models = { group = "io.github.rallista", name = "valhalla-models", version.ref = "valhallaModels" }
-valhalla-models-config = { group = "io.github.rallista", name = "valhalla-models-config", version.ref = "valhallaModels" }
-osrm-openapi = { group = "com.stadiamaps", name = "osrm-openapi", version.ref = "osrm" }
-okhttp-bom = { group = "com.squareup.okhttp3", name = "okhttp-bom", version.ref = "okhttpBom" }
-desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugar" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "androidGradlePlugin" }

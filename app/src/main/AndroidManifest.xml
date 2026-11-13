@@ -17,14 +17,19 @@
     <!-- Permiso de red para carga de carátulas y metadatos remotos (Coil 3 / BitChord) -->
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Detección de conectividad para el modo offline de Navegación
-         (ConnectivityManager: solo cuenta la red validada) -->
+    <!-- Detección de conectividad (BitChord: letras y descargas;
+         ConnectivityManager: solo cuenta la red validada) -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Permisos para Servicio Multimedia Interno Media3 y Reproducción de Audio Local -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- Permiso de superposición para el botón flotante "Volver a DivineDeck"
+         que aparece sobre Google Maps (SYSTEM_ALERT_WINDOW, se concede una
+         vez en Ajustes; sin él la app funciona igual, solo sin el botón) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
@@ -37,10 +42,6 @@
         </intent>
         <intent>
             <action android:name="androidx.media3.session.MediaLibraryService" />
-        </intent>
-        <!-- Motor de voz del sistema para las instrucciones de navegación (Ferrostar) -->
-        <intent>
-            <action android:name="android.speech.tts.TextToSpeechService" />
         </intent>
     </queries>
 
@@ -96,12 +97,14 @@
             </intent-filter>
         </service>
 
-        <!-- Servicio en primer plano de Ferrostar: mantiene la navegación
-             guiada con voz aunque DivineDeck no esté al frente -->
+        <!-- Botón flotante "Volver a DivineDeck" sobre Google Maps: servicio
+             en primer plano de uso especial (specialUse, API 29+; declarado
+             así porque no encaja en los tipos estándar: solo muestra un
+             botón de retorno a la pantalla principal) -->
         <service
-            android:name="com.stadiamaps.ferrostar.core.service.FerrostarForegroundService"
+            android:name=".feature.navcenter.service.ReturnHomeFloatingService"
             android:exported="false"
-            android:foregroundServiceType="location" />
+            android:foregroundServiceType="specialUse" />
 
     </application>
 
